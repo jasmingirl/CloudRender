@@ -1,5 +1,5 @@
 //------------------------------------------------------------------------------/
-// File Name  / CloudRender.cpp
+// File Name	/ CloudRender.cpp
 //------------------------------------------------------------------------------/
 // Abstruct		/一番メインのプログラム
 // Declared in	/																/
@@ -59,6 +59,7 @@ CCloudRender::CCloudRender(const vec2<int>& _pos)
 	,m_Karmapara(0.45f)//生まれ変わりやすを支配するパラメータ あとでロシアンルーレット形式風アニメにも使おうかな	
 	,m_IniFile("../data/setting.ini")
 {	
+	//m_RedPoint.set(0.25,0.0,0.0);
 	char test[200];
 	GetPrivateProfileSectionNames(test,200,m_IniFile.c_str());
 	m_DataKey[0]="iruma";
@@ -248,19 +249,19 @@ bool CCloudRender::AnimateRandomFadeOut(){
 		for(int i=0;i<m_ValidPtNum;i++){
 			//無作為に生まれ変わる
 			randomval=rand()%(m_ValidPtNum);
-			if(randomval<random_control){m_Dynamic[i]=m_Static[i].pos;m_ucIntensity[i]=m_ucStaticIntensity[i];continue;}
+			if(randomval<random_control){ResetVoxelPosition(i);continue;}
 			//現在の粒子の位置を0.0-1.0に正規化 現在の位置から、参照すべき風ベクトルの位置を知るため
 			n_indexpos.x=m_Dynamic[i].x+0.5f;
 			n_indexpos.y=m_Dynamic[i].y+0.5f;
 			n_indexpos.z=m_Dynamic[i].z;
 			
 			//もし配列の範囲を超えてしまったら位置をリセットする。 無い風は参照にできないから　希望としてはボリュームデータよりも大きめに風データを置きたい　じゃないと端っこが変になるから
-			if(n_indexpos.x>1.0f){	m_Dynamic[i]=m_Static[i].pos;m_ucIntensity[i]=m_ucStaticIntensity[i];continue;}
-			if(n_indexpos.x<0.0f){	m_Dynamic[i]=m_Static[i].pos;m_ucIntensity[i]=m_ucStaticIntensity[i];continue;}
-			if(n_indexpos.y>1.0f){	m_Dynamic[i]=m_Static[i].pos;m_ucIntensity[i]=m_ucStaticIntensity[i];continue;}
-			if(n_indexpos.y<0.0f){	m_Dynamic[i]=m_Static[i].pos;m_ucIntensity[i]=m_ucStaticIntensity[i];continue;}
-			if(n_indexpos.z>1.0f){	m_Dynamic[i]=m_Static[i].pos;m_ucIntensity[i]=m_ucStaticIntensity[i];continue;}
-			if(n_indexpos.z<0.0f){	m_Dynamic[i]=m_Static[i].pos;m_ucIntensity[i]=m_ucStaticIntensity[i];continue;}
+			if(n_indexpos.x>1.0f){	ResetVoxelPosition(i);continue;}
+			if(n_indexpos.x<0.0f){	ResetVoxelPosition(i);continue;}
+			if(n_indexpos.y>1.0f){	ResetVoxelPosition(i);continue;}
+			if(n_indexpos.y<0.0f){	ResetVoxelPosition(i);continue;}
+			if(n_indexpos.z>1.0f){	ResetVoxelPosition(i);continue;}
+			if(n_indexpos.z<0.0f){	ResetVoxelPosition(i);continue;}
 			//ここで関数呼び出しすると激重　FPS3になる。 直書きにするとFPS1up
 			//インライン化するか、直書きするか？迷い中。
 			indexpos.x=(int)(n_indexpos.x*(float)(m_Size.xy-1));
@@ -276,13 +277,12 @@ bool CCloudRender::AnimateRandomFadeOut(){
 			windindex=((int)(windpos.z*m_Wind.xy+windpos.y)*m_Wind.xy+(int)(windpos.x));
 			
 			if(m_renderdata[windindex].zero()){//行き着いた先が無風状態だった場合
-				m_Dynamic[i]=m_Static[i].pos;m_ucIntensity[i]=m_ucStaticIntensity[i];continue;
+				ResetVoxelPosition(i);continue;
 			}
 			//数々の条件をクリアしたら 位置を更新！！
-			//なぜ最初だけぶっとぶのか？
 			m_Dynamic[i]+=(m_renderdata[windindex]);
-
-			//断面図にも風を反映させるため　ここがエラー！！
+			m_RedPoint+=(m_renderdata[windindex]);
+			//断面図にも風を反映させるため　
 			if(m_bSliceVisible){
 				//粒子の位置が移動した後、断面テクスチャにそれを反映させる
 				n_indexpos.x=m_Dynamic[i].x+0.5f;//+shift;//現在の粒子の位置を0.0-1.0に正規化
@@ -734,12 +734,12 @@ void CCloudRender::KeyBoard(unsigned char c){
 		incrementThreshold(-4);
 		break;
 	case 't':
-		incrementThreshold(2);
-		//m_pt_para->IncrementTransparency(-0.05f,true);
+		//incrementThreshold(2);
+		m_pt_para->IncrementTransparency(-0.05f,true);
 		break;
 	case 'T':
-		incrementThreshold(-2);
-		//m_pt_para->IncrementTransparency(0.05f,true);
+		//incrementThreshold(-2);
+		m_pt_para->IncrementTransparency(0.05f,true);
 		break;
 	case 'p':
 		m_pt_para->IncrementPointSize(-0.1f,*m_TransForm,true);
@@ -826,7 +826,7 @@ bool CCloudRender::Run(void ){
 	for(int i=0;i<m_nNode;i++){
 				m_Nodes[i]->Run();
 			}
-	
+
 	//主役の雲を一番手前に
 	//cout<<"m_bCurrentVolData"<<m_bCurrentVolData<<endl;
 	static vec3<float> intersection[6];
@@ -899,7 +899,13 @@ bool CCloudRender::Run(void ){
 		
 		glUseProgram(0);
 	}
-	
+		//赤い点のレンダリング
+		glColor3f(1.0,0.0,0.0);
+		glPointSize(20);
+		glBegin(GL_POINTS);
+		m_RedPoint.glVertex();
+		glEnd();
+		
 	DrawWindVector();
 	AnimateRandomFadeOut();//風ベクトルに沿って動かす
 	BlendTime();//0～6分後のブレンドする
