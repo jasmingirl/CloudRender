@@ -25,7 +25,7 @@ using namespace std;
 
 using namespace miffy;
 struct sVolSize{
-  int xy;
+	int xy;
 	int z;
 	int total(){return xy*xy*z;}
 	int serialId(int _x,int _y,int _z){return ((_z*xy+_y)*xy+_x);}
@@ -45,6 +45,7 @@ public:
 	~CCloudRender(void);
 	void ArrayInit(size_t _size);
 	bool Animate();
+
 	bool AnimateRandomFadeOut();
 	void AppendChild(INode* _ch);
 	void ChangeWindSpeed();
@@ -71,6 +72,7 @@ public:
 	void DrawWindVector();
 	void keyboard(unsigned char c);
 	void Reset();
+	void ResetVoxelPosition(int _index){m_Dynamic[_index]=m_Static[_index].pos;m_ucIntensity[_index]=m_ucStaticIntensity[_index];m_RedPoint.set(0,0,0);}
 public:
 	CInputHandler* m_InputHandle;
 	CTransForm* m_TransForm;
@@ -104,6 +106,7 @@ private:
 	color<float>* m_ucWindTF;//風の矢印を虹色にするための伝達関数
 	GLSLsamp m_GausTexSamp;//ガウシアンテクスチャ　シェーダに渡す
 	GLSLpara< vec4<float> > mLocalCam;//オブジェクトに中心を原点とした時のカメラ位置
+	vec3<float> m_RedPoint;
 	GLSLAtt mIntensity;//点の透明度　ボリュームデータは動的に変わるけど、シェーダ単位では変わらないからここに存在させておく
 	float zScale;//ボリュームデータはz方向が足りないのが多いのでこうする
 	float zSpeed;
