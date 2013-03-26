@@ -1,20 +1,11 @@
-//------------------------------------------------------------------------------/
-// File Name	/ CloudRender.cpp
-//------------------------------------------------------------------------------/
-// Abstruct		/一番メインのプログラム
-// Declared in	/																/
-// Include		/																/
-// History		/ Rev 1.0.0 2013.02.22 Minako Yamahiro
-//------------------------------------------------------------------------------/
-// Copyright ( C ) 2012 Japan Radio Co., Ltd, All right reserved				/
-//------------------------------------------------------------------------------/
-
 #include "CloudRender.h"
 extern CCloudRender *g_Render;
 const float CENTER_ELE=92.7716980f;//レーダー観測地点での高度m
 stringstream FILENAME;
 float ELERANGE=74.0f/1024.0f;
-
+/*!
+	@brief コンストラクタ glewInitよりも前にやっていい初期化をここでする。PrivateProfileで初期設定読み込むのもここ
+*/
 CCloudRender::CCloudRender(const vec2<int>& _pos)
 	:m_bCurrentVolData(false)//デフォルトは「解像度の良い雲」
 	,m_bShowCloud(true)//ボリュームデータは隠さない
@@ -65,24 +56,13 @@ CCloudRender::CCloudRender(const vec2<int>& _pos)
 	m_ValidPtNum=0;
 	GetPrivateProfileString(m_DataKey[0].c_str(),"wind","../data/Typhoon1_32.jmesh",test,200,m_IniFile.c_str());
 	
+	jmesh::Load(test,&m_Wind.xy,&m_Wind.z,m_rawdata);
+	m_renderdata=new vec3<float>[m_Wind.total()];
+	// m_renderdataにレンダリング用に都合の良いように加工したm_rawdataを詰め込む。
+	ChangeWindSpeed();
+	// 伝達関数の読み込み　１回め　伝達関数は、、、何か汎用的なフォーマットにしたいなぁ。
 	HANDLE handle;
 	DWORD dwnumread;
-	JMeshHeader header;
-	J3Header j3header;
-	handle = CreateFile(test, GENERIC_READ,FILE_SHARE_READ, NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL, NULL );
-	ReadFile(handle,&header.FileType,sizeof(JMeshHeader),&dwnumread ,NULL);
-	ReadFile(handle,&j3header.xNum,sizeof(J3Header),&dwnumread ,NULL);
-
-
-	m_Wind.xy=j3header.xNum;
-	m_Wind.z=j3header.zNum;
-
-	m_rawdata=new vec3<float>[m_Wind.total()];
-	m_renderdata=new vec3<float>[m_Wind.total()];
-
-	ReadFile(handle,&m_rawdata[0],sizeof(vec3<float>)*m_Wind.total(),&dwnumread ,NULL);
-	CloseHandle(handle);
-	ChangeWindSpeed();
 	GetPrivateProfileString("common","windtf","../data/tf/rainbow-256.tf",test,200,m_IniFile.c_str());
 	handle = CreateFile(test, GENERIC_READ,FILE_SHARE_READ, NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL, NULL );
 	if(handle==INVALID_HANDLE_VALUE){assert(!"ファイルが存在しません。");}
@@ -144,8 +124,8 @@ bool CCloudRender::AnimateRandomFadeOut(){
 		return 0;
 }
 void CCloudRender::ArrayInit(size_t _size){
-	cout<<"ArrayInit()"<<endl;
-	m_ucIntensity=new unsigned char[_size];
+	cout<<"ArrayInit="<<_size<<endl;
+	//m_ucIntensity=new unsigned char[_size];
 	m_ucStaticIntensity=new unsigned char[_size];
 	m_Dynamic=new  vec3<float>[_size];
 	m_Static=new CParticle[_size];
@@ -342,10 +322,6 @@ bool CCloudRender::FileLoad(){//ファイルスレッド用関数
 }
 string* CCloudRender::GetToggleText(){return m_ToggleText;}
 bool CCloudRender::GetCurrentState(){return m_bCurrentVolData;}
-int CCloudRender::GenerateWindow(){
-	Init();
-	return 0;
-}
 /*! ウィンドウサイズが変化した時だけ処理したいのがあるけど、今は毎フレーム処理している状態。
 	どうせ毎フレームリサイズを☑してるんだから、これはRunに入れてもいいよね？
 	もう二度と、コールバックモードに戻るつもりはないし。
@@ -368,6 +344,9 @@ CCloudRender::~CCloudRender(void){
 	WritePrivateProfileString("anjou","threshold",str.str().c_str(),m_IniFile.c_str());
 	
 }
+/*!
+	@brief glewInit()した後にやりたい初期化処理
+*/
 void CCloudRender::Init(){
 	glGetIntegerv(GL_MAX_3D_TEXTURE_SIZE,&m_Max3DTexSize);
 	cout<<"３次元テクスチャの最大サイズ"<<m_Max3DTexSize<<endl;
@@ -380,23 +359,13 @@ void CCloudRender::Init(){
 			GetPrivateProfileString(m_DataKey[0].c_str(),"file","失敗",str,200,m_IniFile.c_str());
 			filepath=str;
 		}
-	 HANDLE handle;
-	 DWORD dwnumread;
-	handle = CreateFile(filepath.c_str(), GENERIC_READ,FILE_SHARE_READ, NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL, NULL );
-	if(handle==INVALID_HANDLE_VALUE){cout<<filepath<<endl;assert(!"ファイルが存在しません");}
-	JMeshHeader jmeshhead;
-	J3Header j3head;
-	ReadFile(handle,&jmeshhead.FileType,sizeof(JMeshHeader),&dwnumread,NULL);
-	ReadFile(handle,&j3head.xNum,sizeof(J3Header),&dwnumread,NULL);
-	m_VolSize.xy=j3head.xNum;
-	m_VolSize.z=j3head.zNum;
-
-	cout<<"ボリュームデータのサイズ"<<m_VolSize.xy<<"×z="<<m_VolSize.z<<endl;
+	/// jmeshボリュームデータの読み込み
+	jmesh::Load(filepath.c_str(),&m_VolSize.xy,&m_VolSize.z,m_ucIntensity);
+	
+	cout<<"ボリュームデータのサイズ xy="<<m_VolSize.xy<<"×z="<<m_VolSize.z<<endl;
 	
 	m_pt_para=new CPointParameter(1.7f,8,m_VolSize.z);
 	ArrayInit(m_VolSize.total());	
-	ReadFile(handle,m_ucIntensity,sizeof(unsigned char)*m_VolSize.total(),&dwnumread,NULL);
-	CloseHandle(handle);
 	
 	memcpy(m_ucStaticIntensity,m_ucIntensity,sizeof(unsigned char)*m_VolSize.total());
 	InitPoints(m_Static,m_threshold);//ここでm_Staticに値が入る
@@ -406,8 +375,10 @@ void CCloudRender::Init(){
 
 
 	m_Light->Init();
+	// 点に貼り付ける、丸いぼんやりテクスチャの設定
 	m_GausTexSamp.ActiveTexture(GL_TEXTURE0);
-	Load8BitmapTexture("gaussian64.bmp",&m_GausTexSamp.tex_id);
+	tga::Load_Texture_8bit_Alpha("../data/texture/gaussian64.tga",&m_GausTexSamp.tex_id);
+
 	glEnable(GL_POINT_SPRITE);
 	glTexEnvf(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_COMBINE);
 	glTexEnvf(GL_POINT_SPRITE,GL_COORD_REPLACE,GL_TRUE);
@@ -446,29 +417,12 @@ void CCloudRender::Init(){
 	m_IsoSurface->Init();
 	//specialkey(GLUT_KEY_PAGE_UP,0,0);//正面を向くようにセット
 	
-	//下の断面図 2回読んでてマジ無駄だけどあとで～
-	 DWORD upper,lower;
-	 GetPrivateProfileString(m_DataKey[0].c_str(),"tf","失敗",str,200,m_IniFile.c_str());
-	handle = CreateFile(str, GENERIC_READ,FILE_SHARE_READ, NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL, NULL );
-	lower=GetFileSize(handle,&upper);
-	color<float> *tf=new color<float>[lower/sizeof(color<float>)];
-	ReadFile(handle,&tf[0].r,lower,&dwnumread,NULL);
-	CloseHandle(handle);
-	int xy_size=m_VolSize.xy*m_VolSize.xy;
-	color<float> *projectedTex=new color<float>[xy_size];
-	//一番下のだけだと物足りなかったのでmaxとる。
-	unsigned char* xyIntensity=new unsigned char[xy_size];
+	//ボリュームデータを地面に投影しつつ虹色に彩色する。投影図を画像ファイルにしちゃおっかな？　そうすると、閾値を動的に変えられないなぁ。。
 	
-	memset(xyIntensity,0,xy_size);
-	for(int z=0;z<m_VolSize.z;z++){
-		for(int i=0;i<xy_size;i++){
-			if(xyIntensity[i]<m_ucIntensity[z*xy_size+i]){
-				xyIntensity[i]=m_ucIntensity[z*xy_size+i];
-				projectedTex[i]=tf[m_ucIntensity[z*xy_size+i]];
-			}
-		}
-	}
-	m_Land->Init(projectedTex,m_VolSize.xy);
+	color<float> *projectedRainbowVol;
+	GenerateProjectedRainbow<unsigned char>(m_ucIntensity,m_VolSize.xy*m_VolSize.xy,m_VolSize.z,m_dataMax,m_threshold,projectedRainbowVol);
+	
+	m_Land->Init(projectedRainbowVol,m_VolSize.xy);
 	m_Karmapara=m_ValidPtNum/256;//TODO:あとで考えよう
 	printf("カルマパラメータ%d\n",m_Karmapara);
 }
@@ -570,6 +524,7 @@ bool CCloudRender::Run(void ){
 	glLoadIdentity();
 	m_TransForm->Enable();
 	m_Land->SetClipPlane(m_TransForm->m_ClippingEquation);//　本来地図はクリップ情報は要らないけど、断面図を投影する関係で要ることになってしまった。
+	
 	//脇役達 等値面、地形、ライト、目盛り
 	m_Light->Enable();
 	if(m_bShowLand){m_Land->Run();}
