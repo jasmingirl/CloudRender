@@ -22,17 +22,22 @@ using namespace std;
 #include "IsoSurface.h"
 #include "Land.h"
 #include "Measure.h"
-#include <miffy/gl/textureutility.h>//主にビットマップを読み込む
+#include <miffy/gl/tga.h>
+
 #include <miffy/gamepad.h>
 #include <miffy/fileformat/jmesh.h>
 #include <miffy/fileformat/jverts.h>
 #include <miffy/math/triangle.h>
 #include <miffy/gl/glsl.h>
 #include <miffy/scene/light.h>
+#include <miffy/volren/tf.h>
 #include "TransForm.h"
 #pragma comment(lib, "opengl32.lib")
 using namespace miffy;
-/// ボリュームデータのサイズを表す構造体。サイズを参照する機会が沢山出現するので作った。
+/*!
+	@briefボリュームデータのサイズを表す構造体。サイズを参照する機会が沢山出現するので作った。
+	やっぱりこの中にボリュームデータへのポインタを入れたい。。。遅くならないかな？
+*/
 struct sVolSize{
 	int xy;
 	int z;
@@ -114,7 +119,6 @@ public:
 		void Init();///< 初期化処理
 		void Reshape();///< カメラの初期化
 		void InitPoints(CParticle* _voxel,unsigned char _thre);///< ボクセルの初期化。閾値以上のものをm_Staticなどに詰め込む
-		int GenerateWindow();
 		void ChangeVolData();///< ボリュームデータを変える　引数にchar*があったほうがいいかも？
 	//@}
 	/*! @name OpenGLコールバック関数*/
@@ -179,7 +183,7 @@ private:
 		color<float> m_BgColor;///<  背景色：白か黒
 		color<float> mFontColor;///<  文字色　背景が白の時は黒・背景が黒の時は白
 		color<float> mBackGround;///< 背景の四角い板グラデーション
-		unsigned char m_threshold;
+		unsigned char m_threshold;///< 閾値　これ以下の信号強度は透明になる。
 		int m_ValidPtNum;///< 閾値以下だった点の数　閾値と連動する
 		string m_ToggleText[2];///< 0:特機の雲 1:6分おきの雲
 		float m_fWindSpeed;///<  風の速さ調節パラメータ
@@ -200,7 +204,7 @@ private:
 	//@}
 	/*! @name 一度初期化したら変わらない変数 */
 	//@{
-		const string m_IniFile;///<  設定ファイルパス
+		const string m_IniFile;///<  初期設定ファイル.iniのパス
 		unsigned char m_dataMax;///<  ボクセルの強度の最大値　constにしたいけど、設定ファイルから読み込むから初期化子を使えない
 		int m_Max3DTexSize;///< その端末で表示できる３Dテクスチャの最大サイズ
 		color<float>* m_ucWindTF;///<  風の矢印を虹色にするための伝達関数
