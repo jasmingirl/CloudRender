@@ -1,52 +1,21 @@
 #include "IsoSurface.h"
-CIsoSurface::CIsoSurface(float elerange,string& _dir)
-  :m_directory(_dir)
-	,m_bJVert2(false)
+CIsoSurface::CIsoSurface(float elerange)
+
 {
 	m_title="等値面";
 	mEnlightCore=false;
 	m_elerange=elerange;
-	stringstream filename;
-	string dir="iso";
-	string type="jvert";
-	if(type=="jvert"){//こっちは綺麗。
-		cout<<"JVert1です"<<endl;
-		for(int i=0;i<5;i++){mSurfaceData[i]=new JVerts();}
-	}else{//こっちは壊れてる
-		m_bJVert2=true;
-		cout<<"JVert2です"<<endl;
-		for(int i=0;i<5;i++){mSurfaceData[i]=new JVerts2();}
-	}
-	filename.str("");
-	filename<<m_directory<<"old/"<<dir.c_str()<<"/64."<<type.c_str();
-	mSurfaceData[0]->Load(filename.str().c_str());
-	filename.str("");
-	filename<<m_directory<<"old/"<<dir.c_str()<<"/72."<<type.c_str();
-	mSurfaceData[1]->Load(filename.str().c_str());
-	filename.str("");
-	filename<<m_directory<<"old/"<<dir.c_str()<<"/92."<<type.c_str();
-	mSurfaceData[2]->Load(filename.str().c_str());
-	filename.str("");
-	filename<<m_directory<<"old/"<<dir.c_str()<<"/120."<<type.c_str();
-	mSurfaceData[3]->Load(filename.str().c_str());
-	filename.str("");
-	filename<<m_directory<<"old/"<<dir.c_str()<<"/136."<<type.c_str();
-	mSurfaceData[4]->Load(filename.str().c_str());
-	filename.str("");
-	if(m_bJVert2){
-		for(int i=0;i<5;i++){
-			mSurfaceData[i]->Resize(vec3<float>(1.0f/160.0f,1.0f/160.0f,1.0f/160.0f));
-		}
-	}else{
-		for(int i=0;i<5;i++){
-			mSurfaceData[i]->Resize(vec3<float>(1.0f/80.0f,1.0f/80.0f,1.0f/80.0f));
-		}
-	}
+	
 	if(elerange<=0.0 || elerange>1.0){
 		cout<<"elerange="<<elerange<<"が変な値"<<endl;
 		cout<<"elerangeは0.0より大きく、1.0以下の値にしてください"<<endl;
 		assert(!"不正な値");
 	}
+	m_Colors[0].set(85,42,255,51);//青色
+	m_Colors[1].set(73,241,249,51);//水色
+	m_Colors[2].set(224,250,254,51);//
+	m_Colors[3].set(255,249,207,51);//黄色
+	m_Colors[4].set(255,2,83,51);//赤
 }
 
 void CIsoSurface::Info(){
@@ -55,41 +24,57 @@ void CIsoSurface::Info(){
 CIsoSurface::~CIsoSurface(void)
 {
 }
-void CIsoSurface::Init(){
+void CIsoSurface::Init(const char* _inifilepath){
+	char str_from_inifile[200];
 	
-	glGenBuffers(1,&m_BufferId);
-	glBindBuffer(GL_ARRAY_BUFFER, m_BufferId);
-	int bytes=sizeof(vec3<float>)*(mSurfaceData[0]->VertNum()+mSurfaceData[1]->VertNum()
-					+mSurfaceData[2]->VertNum()+mSurfaceData[3]->VertNum()
-					+mSurfaceData[4]->VertNum());
-
-	//cout<<"等値面サイズ"<<bytes/1024/1024<<"MB"<<endl;
-	glBufferData(GL_ARRAY_BUFFER,bytes,0,GL_STATIC_DRAW);//ここでエラー
-	//頂点情報も最初以降がおかしい。
-	//最初のちょこっとしか届いてない。
-	glBufferSubData(GL_ARRAY_BUFFER, 0                                             , sizeof(vec3<float>)*mSurfaceData[0]->VertNum(),mSurfaceData[0]->Data());
-	glBufferSubData(GL_ARRAY_BUFFER, sizeof(vec3<float>)*mSurfaceData[0]->VertNum(), sizeof(vec3<float>)*mSurfaceData[1]->VertNum(),mSurfaceData[1]->Data());
-	glBufferSubData(GL_ARRAY_BUFFER, sizeof(vec3<float>)*mSurfaceData[1]->VertNum(), sizeof(vec3<float>)*mSurfaceData[2]->VertNum(),mSurfaceData[2]->Data());
-	glBufferSubData(GL_ARRAY_BUFFER, sizeof(vec3<float>)*mSurfaceData[2]->VertNum(), sizeof(vec3<float>)*mSurfaceData[3]->VertNum(),mSurfaceData[3]->Data());
-	glBufferSubData(GL_ARRAY_BUFFER, sizeof(vec3<float>)*mSurfaceData[3]->VertNum(), sizeof(vec3<float>)*mSurfaceData[4]->VertNum(),mSurfaceData[4]->Data());
-	if(m_bJVert2){
-		mSurfaceData[0]->Info();
-		glGenBuffers(1,&m_IdBufferId);
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,m_IdBufferId);
-		bytes=sizeof(unsigned int)*(mSurfaceData[0]->FaceNum()+mSurfaceData[1]->FaceNum()
-										+mSurfaceData[2]->FaceNum()+mSurfaceData[3]->FaceNum()
-										+mSurfaceData[4]->FaceNum());
-		glBufferData(GL_ELEMENT_ARRAY_BUFFER,bytes,0,GL_STATIC_DRAW);
-		//VBOがおかしい
-		glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0                                              , sizeof(unsigned int)*mSurfaceData[0]->FaceNum(),mSurfaceData[0]->FaceData());
-		glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int)*mSurfaceData[0]->FaceNum(), sizeof(unsigned int)*mSurfaceData[1]->FaceNum(),mSurfaceData[1]->FaceData());
-		glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int)*mSurfaceData[1]->FaceNum(), sizeof(unsigned int)*mSurfaceData[2]->FaceNum(),mSurfaceData[2]->FaceData());
-		glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int)*mSurfaceData[2]->FaceNum(), sizeof(unsigned int)*mSurfaceData[3]->FaceNum(),mSurfaceData[3]->FaceData());
-		glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int)*mSurfaceData[3]->FaceNum(), sizeof(unsigned int)*mSurfaceData[4]->FaceNum(),mSurfaceData[4]->FaceData());
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+	string names[]={"iso0","iso1","iso2","iso3","iso4"};
+	
+	for(int i=4;i>=0;i--){
+		GetPrivateProfileString("iruma",names[i].c_str(),"失敗",str_from_inifile,200,_inifilepath);
 		
-	}
-	glBindBuffer(GL_ARRAY_BUFFER,0);GetGLError("CGlsl::CreateShaderProgram");
+		if(!plydata[i].LoadPlyData(str_from_inifile)){
+			OutputDebugString("ロード失敗\n");
+			assert(!"ロード失敗");
+		}
+		m_VertNum[i]=plydata[i].mVertNum;
+		m_IndexNum[i]=plydata[i].mFacenum*3;
+		//stringstream cdbg;//たぶん、位置が変なのよ
+		//cdbg<<m_VertNum[i]<<endl;
+		//OutputDebugString(cdbg.str().c_str());
+	}	
+	//glGenBuffers(1,&m_BufferId);
+	//glBindBuffer(GL_ARRAY_BUFFER, m_BufferId);
+	//int bytes=sizeof(vec3<float>)*(m_VertNum[0]+m_VertNum[1]+m_VertNum[2]+m_VertNum[3]+m_VertNum[4]);
+	////for(int i=0;i<100;i++){
+	////	stringstream cdbg;//たぶん、位置が変なのよ
+	////	cdbg<<plydata[4].m_Verts[i].x<<endl;
+	////	OutputDebugString(cdbg.str().c_str());
+	////}
+	////cout<<"等値面サイズ"<<bytes/1024/1024<<"MB"<<endl;
+	//glBufferData(GL_ARRAY_BUFFER,bytes,0,GL_STATIC_DRAW);//ここでエラー
+	////頂点情報も最初以降がおかしい。
+	////最初のちょこっとしか届いてない。
+	//glBufferSubData(GL_ARRAY_BUFFER, 0                               , sizeof(vec3<float>)*m_VertNum[0],&(plydata[0].m_Verts[0].x));
+	//glBufferSubData(GL_ARRAY_BUFFER, sizeof(vec3<float>)*m_VertNum[0], sizeof(vec3<float>)*m_VertNum[1],&(plydata[1].m_Verts[0].x));
+	//glBufferSubData(GL_ARRAY_BUFFER, sizeof(vec3<float>)*m_VertNum[1], sizeof(vec3<float>)*m_VertNum[2],&(plydata[2].m_Verts[0].x));
+	//glBufferSubData(GL_ARRAY_BUFFER, sizeof(vec3<float>)*m_VertNum[2], sizeof(vec3<float>)*m_VertNum[3],&(plydata[3].m_Verts[0].x));
+	//glBufferSubData(GL_ARRAY_BUFFER, sizeof(vec3<float>)*m_VertNum[3], sizeof(vec3<float>)*m_VertNum[4],&(plydata[4].m_Verts[0].x));
+	//
+	//glBindBuffer(GL_ARRAY_BUFFER,0);
+	//glGenBuffers(1,&m_IdBufferId);
+	//glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_IdBufferId);
+	//bytes=sizeof(unsigned int)*(m_IndexNum[0]+m_IndexNum[1]+m_IndexNum[2]+m_IndexNum[3]+m_IndexNum[4]);
+
+	//glBufferData(GL_ELEMENT_ARRAY_BUFFER,bytes,0,GL_STATIC_DRAW);//ここでエラー
+	////頂点情報も最初以降がおかしい。
+	////最初のちょこっとしか届いてない。
+	//glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0                               ,  sizeof(unsigned int)*m_IndexNum[0],&(plydata[0].m_Indices[0]));
+	//glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int)*m_IndexNum[0], sizeof(unsigned int)*m_IndexNum[1],&(plydata[1].m_Indices[0]));
+	//glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int)*m_IndexNum[1], sizeof(unsigned int)*m_IndexNum[2],&(plydata[2].m_Indices[0]));
+	//glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int)*m_IndexNum[2], sizeof(unsigned int)*m_IndexNum[3],&(plydata[3].m_Indices[0]));
+	//glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int)*m_IndexNum[3], sizeof(unsigned int)*m_IndexNum[4],&(plydata[4].m_Indices[0]));
+	//
+	//glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,0);
 	
 }
 bool CIsoSurface::Run(){
@@ -103,74 +88,46 @@ bool CIsoSurface::Run(){
 	glPointSize(8);
 	glDepthMask(GL_FALSE);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	
 	glEnableClientState(GL_VERTEX_ARRAY);
-	glBindBuffer(GL_ARRAY_BUFFER, m_BufferId);
-	
-	
-	if(m_bJVert2){
-		//glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_IdBufferId);
-		glColor4ub(85,42,255,51);//青色
-		mSurfaceData[0]->Draw();
-		glColor4ub(73,241,249,51);//水色
-		mSurfaceData[1]->Draw();
-		glColor4ub(224,250,254,51);//
-		mSurfaceData[2]->Draw();
-		glColor4ub(255,249,207,51);//黄色
-		mSurfaceData[3]->Draw();
-		glColor4ub(255,2,83,51);//赤
-		mSurfaceData[4]->Draw();
-		glPointSize(8);
-		glColor4ub(255,2,83,255);
-		//JVert2のVBOがなぜかできない。保留
-		/*glColor4ub(85,42,255,255);//青色
-		glVertexPointer(3,GL_FLOAT,0,0);
-		glDrawArrays(GL_POINTS,0,mSurfaceData[0]->VertNum());
-		//glDrawElements(GL_LINE_LOOP,mSurfaceData[0]->FaceNum(),GL_UNSIGNED_INT,0);
-		
-		glColor4ub(73,241,249,51);//水色
-		glVertexPointer(3,GL_FLOAT,0,(GLubyte*)(sizeof(vec3<float>)*mSurfaceData[0]->VertNum()));
-		glDrawArrays(GL_POINTS,0,mSurfaceData[1]->VertNum());
-		//glDrawElements(GL_LINE_LOOP,mSurfaceData[1]->FaceNum(),GL_UNSIGNED_INT,(GLubyte*)(sizeof(unsigned int)*mSurfaceData[0]->FaceNum()));
-		
-		glColor4ub(224,250,254,51);//
-		glVertexPointer(3,GL_FLOAT,0,(GLubyte*)(sizeof(vec3<float>)*mSurfaceData[1]->VertNum()));
-		glDrawArrays(GL_POINTS,0,mSurfaceData[2]->VertNum());
-		//glDrawElements(GL_LINE_LOOP,mSurfaceData[2]->FaceNum(),GL_UNSIGNED_INT,(GLubyte*)(sizeof(unsigned int)*mSurfaceData[1]->FaceNum()));
-		
-		glColor4ub(255,249,207,51);//黄色
-		glVertexPointer(3,GL_FLOAT,0,(GLubyte*)(sizeof(vec3<float>)*mSurfaceData[2]->VertNum()));
-		glDrawArrays(GL_POINTS,0,mSurfaceData[3]->VertNum());
-		//glDrawElements(GL_LINE_LOOP,mSurfaceData[3]->FaceNum(),GL_UNSIGNED_INT,(GLubyte*)(sizeof(unsigned int)*mSurfaceData[2]->FaceNum()));
-		
-		glColor4ub(255,2,83,51);//赤
-		glVertexPointer(3,GL_FLOAT,0,(GLubyte*)(sizeof(vec3<float>)*mSurfaceData[3]->VertNum()));
-		glDrawArrays(GL_POINTS,0,mSurfaceData[4]->VertNum());
-		//glDrawElements(GL_LINE_LOOP,mSurfaceData[4]->FaceNum(),GL_UNSIGNED_INT,(GLubyte*)(sizeof(unsigned int)*mSurfaceData[3]->FaceNum()));
-		*/
-	}else{
-		glColor4ub(85,42,255,51);//青色
-		glVertexPointer(3,GL_FLOAT,0,0);
-		glDrawArrays(GL_TRIANGLES,0,mSurfaceData[0]->VertNum());
-		glColor4ub(73,241,249,51);//水色
-		glVertexPointer(3,GL_FLOAT,0,(GLubyte*)(sizeof(vec3<float>)*mSurfaceData[0]->VertNum()));
-		glDrawArrays(GL_TRIANGLES,0,mSurfaceData[1]->VertNum());
-		glColor4ub(224,250,254,51);//
-		glVertexPointer(3,GL_FLOAT,0,(GLubyte*)(sizeof(vec3<float>)*mSurfaceData[1]->VertNum()));
-		glDrawArrays(GL_TRIANGLES,0,mSurfaceData[2]->VertNum());
-		glColor4ub(255,249,207,51);//黄色
-		glVertexPointer(3,GL_FLOAT,0,(GLubyte*)(sizeof(vec3<float>)*mSurfaceData[2]->VertNum()));
-		glDrawArrays(GL_TRIANGLES,0,mSurfaceData[3]->VertNum());
-		glColor4ub(255,2,83,51);//赤
-		glVertexPointer(3,GL_FLOAT,0,(GLubyte*)(sizeof(vec3<float>)*mSurfaceData[3]->VertNum()));
-		glDrawArrays(GL_TRIANGLES,0,mSurfaceData[4]->VertNum());
+	glEnableClientState(GL_INDEX_ARRAY);
+	//glBindBuffer(GL_ARRAY_BUFFER, m_BufferId);
+	//glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_IdBufferId);
+	//	glColor4ub(85,42,255,51);//青色
+	//	glVertexPointer(3,GL_FLOAT,0,0);
+	//	glIndexPointer(GL_INT,0,0);
+	//	glDrawElements(GL_TRIANGLES,m_VertNum[0],GL_UNSIGNED_INT,0);
+	//	//glDrawArrays(GL_TRIANGLES,0,m_VertNum[0]);
+	//	glColor4ub(73,241,249,51);//水色
+	//	glVertexPointer(3,GL_FLOAT,0,(GLubyte*)(sizeof(vec3<float>)*m_VertNum[0]));
+	//	glIndexPointer(GL_INT,0,(GLubyte*)(sizeof(unsigned int)*m_IndexNum[0]));
+	//	glDrawElements(GL_TRIANGLES,m_VertNum[1],GL_UNSIGNED_INT,0);
+	//	//glDrawArrays(GL_TRIANGLES,0,m_VertNum[1]);
+	//	glColor4ub(224,250,254,51);//
+	//	glVertexPointer(3,GL_FLOAT,0,(GLubyte*)(sizeof(vec3<float>)*m_VertNum[1]));
+	//	glIndexPointer(GL_INT,0,(GLubyte*)(sizeof(unsigned int)*m_IndexNum[1]));
+	//	glDrawElements(GL_TRIANGLES,m_VertNum[2],GL_UNSIGNED_INT,0);
+	//	//glDrawArrays(GL_TRIANGLES,0,m_VertNum[2]);
+	//	glColor4ub(255,249,207,51);//黄色
+	//	glVertexPointer(3,GL_FLOAT,0,(GLubyte*)(sizeof(vec3<float>)*m_VertNum[2]));
+	//	glIndexPointer(GL_INT,0,(GLubyte*)(sizeof(unsigned int)*m_IndexNum[2]));
+	//	glDrawElements(GL_TRIANGLES,m_VertNum[3],GL_UNSIGNED_INT,0);
+	//	//glDrawArrays(GL_TRIANGLES,0,m_VertNum[3]);
+	for(int i=0;i<5;i++){
+		m_Colors[i].glColor();	
+		glVertexPointer(3,GL_FLOAT,0,&(plydata[i].m_Verts[0].x));
+		glIndexPointer(GL_INT,0,&(plydata[i].m_Indices[0]));
+		glDrawElements(GL_TRIANGLES,m_IndexNum[i],GL_UNSIGNED_INT,&(plydata[i].m_Indices[0]));
 	}
+		//glVertexPointer(3,GL_FLOAT,0,(GLubyte*)(sizeof(vec3<float>)*m_VertNum[4]));
+		//glIndexPointer(GL_INT,0,(GLubyte*)(sizeof(unsigned int)*m_IndexNum[4]));
+		//glDrawElements(GL_TRIANGLES,m_IndexNum[4],GL_UNSIGNED_INT,0);
+		//glDrawArrays(GL_TRIANGLES,0,m_VertNum[4]);
 	
+	glDisableClientState(GL_INDEX_ARRAY);
 	glDisableClientState(GL_VERTEX_ARRAY);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
-	if(m_bJVert2){
-		//glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-	}
-	
+	//glBindBuffer(GL_ARRAY_BUFFER, 0);
+	//glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 	glDisable(GL_BLEND);
 	glEnable(GL_LIGHTING);
 	glDepthMask(GL_TRUE);
