@@ -1,7 +1,7 @@
 
 #include "TransForm.h"
 /*!
-  都合よく見える組み合わせ、はユーザが決めるのは危険。
+	都合よく見える組み合わせ、はユーザが決めるのは危険。
 	こっち側で用意して上げたほうがよいと思い、fovy,near,などのカメラパラメータをハードコードにした。
 	ウィンドウサイズはPCかタブレット端末か、デバイスによって変わるけど。。。アスペクト比が合っていることが重要。
 */
@@ -22,8 +22,7 @@ CTransForm::CTransForm()
 	m_Top.set(18,69,98,255);
 	m_Middle.set(71,134,126,255);
 	m_Bottom.set(170,220,167,255);
-	m_ClippingEquation[0]=-1.0;m_ClippingEquation[1]=0.0;m_ClippingEquation[2]=0.0;m_ClippingEquation[3]=0.5;
-}
+	}
 
 void CTransForm::ChangeView(int _val){
 	//switch(_val){
@@ -92,6 +91,7 @@ bool CTransForm::CheckParameterChange(){
 		lastState2=current_printmode_state;
 		return 0;
 	}
+	
 	return 0;
 }
 void CTransForm::Disable(){
@@ -119,6 +119,9 @@ bool CTransForm::DrawBackGround(){
 
 }
 void CTransForm::Enable(){
+	//stringstream cdbg;
+	//cdbg<<"clip direction="<<m_ClipDirection<<endl;
+	//OutputDebugString(cdbg.str().c_str());
 	glClearColor(m_BgColor.r,m_BgColor.g,m_BgColor.b ,m_BgColor.a);//なんでアルファを0.0にするんだっけ
 	glClear( GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
 	glMatrixMode(GL_MODELVIEW);
@@ -132,8 +135,7 @@ void CTransForm::Enable(){
 	
 	glMultMatrixf(m_TranslationMatrix.m);
 	glMultMatrixf(m_RotationMatrix.m);
-	glClipPlane(GL_CLIP_PLANE0,m_ClippingEquation);
-	glEnable(GL_CLIP_PLANE0);
+	
 	
 }
 float CTransForm::farPlaneSize()const{//縦横どっちか忘れた
@@ -151,9 +153,7 @@ void CTransForm::Info(){//原点からどのぐらい移動したのかを表示
 void CTransForm::KeyBoard(unsigned char _c){
 	assert(!"何も実装されてません。");
 }
-void CTransForm::SaveRotationState(){//Quaternionの姿勢を保存
-	m_CurrentQuaternion=m_TargetQuaternion;
-}
+
 /*!
 	すべてのコアライブラリから独立させるため、引数に_w,_hをつけた。
 	各APIでウィンドウサイズを取得してこの引数に渡してください。
@@ -171,6 +171,7 @@ void CTransForm::Reshape(int _w,int _h){
 	}
 	
 	glMatrixMode(GL_PROJECTION);	
+	glPushMatrix();
 	glLoadIdentity();
 	//もう少しきれいにならないかな
 	if(m_Flags & MY_ORTHOGONAL){
@@ -183,6 +184,7 @@ void CTransForm::Reshape(int _w,int _h){
 	vec3<float> plane_center(0.0,0.0,-mFarClip+numeric_limits<float>::epsilon());
 	m_Plane.setZaligned(plane_center,farPlaneSize()*aspect,farPlaneSize());
 	glMatrixMode(GL_MODELVIEW);
+	glPushMatrix();
 	glLoadIdentity();
 }
 /*!
@@ -206,6 +208,12 @@ void CTransForm::RotateFromScreen(int _dx,int _dy){
 		m_TargetQuaternion.toMat4(const_cast<float*>(m_RotationMatrix.m));
 	}
 }
+void CTransForm::SaveRotationState(){//Quaternionの姿勢を保存
+	m_CurrentQuaternion=m_TargetQuaternion;
+}
+/*!
+	AntTweakBar対策にわざわざxyzwの順序を変えている。
+*/
 void  CTransForm::RotateFromQuat(float* _quat){
 	m_CurrentQuaternion.set(_quat[3],_quat[0],_quat[1],_quat[2]);
 	m_CurrentQuaternion.toMat4(const_cast<float*>(m_RotationMatrix.m));
