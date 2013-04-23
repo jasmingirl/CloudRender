@@ -17,10 +17,6 @@
 #include <iostream>
 #include <functional>//mem_fnに必要
 using namespace std;
-#include <assimp/Importer.hpp>      // C++ importer interface
-#include <assimp/scene.h>           // Output data structure
-#include <assimp/postprocess.h>     // Post processing flags
-#pragma comment(lib,"assimp.lib")
 #include <GL/glew.h>
 #include <GL/freeglut.h>
 #include <GL/glfw.h>
@@ -35,6 +31,7 @@ using namespace std;
 #include <miffy/scene/light.h>
 #include <miffy/volren/tf.h>
 #include <miffy/fileread.h>
+#include <miffy/fileformat/ply.h>//assimpはバグるのでやめる！！！
 #include <mmsystem.h>
 #include "GLSLReal.h"//雲シェーダ
 #include "GLSLRainbow.h"//虹シェーダ
