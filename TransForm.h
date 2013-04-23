@@ -10,27 +10,16 @@ using namespace std;
 #include <miffy/gl/glutility.h>
 #include <GL/glfw.h>
 #include <miffy/math/vec2.h>
+#include <miffy/math/vec4.h>
+#include <miffy/math/matrix.h>
 #include <miffy/math/fixedview.h>
 #include <miffy/math/color.h>
 #include <miffy/math/quad.h>
 using namespace miffy;
-///// スライダーバーとクリップ面のいちを連動させるために作ったクラス　地図の断面図投影で使用されるようだ。
-//class CClip
-//{
-//public:
-//  CClip(){m_Eqn[0]=-1.0;m_Eqn[1]=0.0;m_Eqn[2]=0.0;m_Eqn[3]=0.5;}//本当は0.5がいい
-//	string GetTitle(){return string("断面");}
-//	void SetVal(float _val){
-//		m_Eqn[3]=((double)_val-0.5);
-//		//cout<<"クリップ面"<<m_Eqn[3]<<endl;
-//	}
-//	float GetVal(){return ((float)m_Eqn[3]+0.5f);}
-//	
-//};
-/// オブジェクトの姿勢・位置を支配する。モデルビュー行列をメンバに持っている　その他、クリッピング方程式を持っていたり、zScaleを大きくしたりする役割も担う
-/*! 独立させたい。。。！他にも朝・昼・晩のシーンを変えるなどの機能がある。
-こいつのISliderはzスケールで、
-この人のメンバのCClipのISliderはスライス面である。
+/*!
+	@brief オブジェクトの姿勢・位置を支配する。モデルビュー行列をメンバに持っている　その他、クリッピング方程式を持っていたり、zScaleを大きくしたりする役割も担う
+	 独立させたい。。。！他にも朝・昼・晩のシーンを変えるなどの機能がある。<br>
+	 もはやTransform以上の機能をもっているなぁ。。この人をなんと呼ぶべき？
 */
 class CTransForm{//modelviewじゃなくてmodelだ。modelの位置と姿勢を変えるクラス
 public:
@@ -83,8 +72,9 @@ public:
 		色々なGUIでアクセスするためこうしてある。そのうちprivateにすべきかも。
 	*/
 	//@{
-	GLdouble m_ClippingEquation[4];///< クリッピング方程式 こいつはあちこちから呼び出される人気の変数である。
 	quat<float> m_CurrentQuaternion;///< 回転状態を保存するためにある　あとでdifに掛け算する。AntTweakBarと連携するためpublic化
+	quat<float> m_TargetQuaternion;///< moveではtarget_quat.toMat4
+	
 	//@}
 private:	
 	/*! @name 変換行列に関わるパラメータ
@@ -102,10 +92,10 @@ private:
 	unsigned int m_Flags;
 	color<float> m_BgColor;///<  背景色：白か黒
 	float m_Zoom;///< 現在のズーム値
-	quat<float> m_TargetQuaternion;///< moveではtarget_quat.toMat4
 	mat4<float> m_RotationMatrix;
 	mat4<float> m_TranslationMatrix;
 	vec3<float> mTranslationVec;
+	
 	//@}
 	/*! @name リサイズで変化するパラメータ
 	*/
