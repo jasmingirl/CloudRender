@@ -1,35 +1,22 @@
 #include "Measure.h"
-CMeasure::CMeasure(float _elerange,CTransForm* _tra)
-  :m_MaxHeight(11.0f),
+CMeasure::CMeasure(float _elerange)
+	:m_MaxHeight(11.0f),
 	m_LENGTH(1.0f),
 	m_KmInterval(2),
-	m_Hide(1),
 	m_LATITUDE(110.88f/160.0f*0.125f),//箱は160kmだから。
 	m_LONGITUDE(91.2888f/160.0f*0.125f)//度はおおざっぱすぎたのでちょっと掛け算した
+	,m_IsCipVisible(false)
 {
-	 m_ZScale=_elerange;//Drawで使用
-	 m_pTra=_tra;
-	 mBoundingBox.set(vec3<float>(0,0,0.5),0.5,0.5);
+	  mBoundingBox.set(vec3<float>(0.0f,0.0f,0.5f),0.5f,0.5f);
 	 adjust=0.0;
-	 m_ToggleText[0]="目盛りを非表示";
-	 m_ToggleText[1]="目盛りを表示";
 	 cout<<"緯度"<<m_LATITUDE<<endl;
 	 cout<<"経度"<<m_LONGITUDE<<endl;
 }
 CMeasure::~CMeasure(void)
 {
 }
-bool CMeasure::Run(){
-	if(m_Hide){return 0;}
-	Draw();
-	return 1;
-}
-bool CMeasure::GetCurrentState(){return m_Hide;}
-string*  CMeasure::GetToggleText(){return m_ToggleText;}
-void CMeasure::Toggle(){
-	m_Hide=!m_Hide;
-}
-void CMeasure::Draw(){
+
+bool CMeasure::Draw(){
 	glDisable(GL_CLIP_PLANE0);
 	glEnable(GL_LINE_SMOOTH);
 	glEnable(GL_BLEND);
@@ -52,7 +39,8 @@ void CMeasure::Draw(){
 		text.str("");
 		text<<km<<"km";
 		glRasterPos3f(x,y,z);//0,0,0位置をスタート位置にする		
-		glutBitmapString(GLUT_BITMAP_HELVETICA_10,(const unsigned char*)(text.str().c_str()));
+		//GLFWではフォントのレンダリングができない！
+		//glutBitmapString(GLUT_BITMAP_HELVETICA_10,(const unsigned char*)(text.str().c_str()));
 		z+=z_interval;
 		km+=m_KmInterval;
 		glColor4f(1.0f,1.0f,1.0f,0.5f);
@@ -63,19 +51,23 @@ void CMeasure::Draw(){
 		glVertex3f(x         ,y+m_LENGTH,z);
 		glEnd();
 	}
+	//壁のグリッドを表示
 	DrawLatMag();
 	//おしりは必ず表示
 	glRasterPos3f(x,y,m_MaxHeight);//0,0,0位置をスタート位置にする		
-	glutBitmapString(GLUT_BITMAP_HELVETICA_10,(const unsigned char*)("11km"));
+	//glutBitmapString(GLUT_BITMAP_HELVETICA_10,(const unsigned char*)("11km"));
 	glColor4f(1.0,1.0,1.0,1.0);
 	//バウンディングボックスを描く
 	static float m[16];
 	glGetFloatv(GL_MODELVIEW_MATRIX,m);
 	mBoundingBox.DrawOnlyBackWire(-m[2],-m[6],-m[10]);
-	DrawClipPlane();
+	if(m_IsCipVisible){
+		DrawClipPlane();
+	}
 	glDisable(GL_BLEND);
 	glDisable(GL_LINE_SMOOTH);
 	glEnable(GL_CLIP_PLANE0);
+	return 1;
 }
 void CMeasure::DrawLatMag(){
 	glColor4f(1.0f,1.0f,1.0f,0.5f);
@@ -98,18 +90,33 @@ void CMeasure::DrawLatMag(){
 		glEnd();
 		x+=m_LONGITUDE;
 	}
-
+	x=-0.5f;
+	//地面のグリッドを表示
+	for(int i=0;i<16;i++){
+		glBegin(GL_LINES);
+		glVertex3f(-0.5f,y,0.0f);
+		glVertex3f(0.5f,y,0.0f);
+		glEnd();
+		y+=1.0f/16.0f;
+	}
+	y=-0.5;
+	for(int i=0;i<16;i++){
+		glBegin(GL_LINES);
+		glVertex3f(x,-0.5f,0.0f);
+		glVertex3f(x,0.5f,0.0f);
+		glEnd();
+		x+=1.0f/16.0f;
+	}
+}
+bool CMeasure::CalcClipPlane(double _clipEqn[4]){
+	m_IsCipVisible= mBoundingBox.CalcClipPlaneVerts(_clipEqn,m_intersection);
+	return m_IsCipVisible;
 }
 void CMeasure::DrawClipPlane(){
-	vec3<float> intersection[6];
-	bool visible=mBoundingBox.CalcClipPlaneVerts(m_pTra->getEqn(),intersection);
-	//mFontColor.glColor();
-	if(visible){
 		glBegin(GL_LINE_LOOP);
 		for(int i = 0; i < 6; ++i) {
-			intersection[i].glVertex();
+			m_intersection[i].glVertex();
 		}
 		glEnd();
-	}
 
 }
