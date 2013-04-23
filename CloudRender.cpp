@@ -433,27 +433,15 @@ void CCloudRender::Init(){
 			m_CallList=glGenLists(1);
 			glNewList(m_CallList,GL_COMPILE);
 		//矢印データの読み込み
-		//こいつらはポインタでつながっているので、離れ離れにしてはならない。
-		const aiScene* assimp_scene;
-			aiVector3D* assimp_verts;
-			aiMesh* assimp_mesh;
-			Assimp::Importer importer;
-			//矢印オブジェクトのロード　assimp使わないでもうちょっとシンプルにしたいな。
-			char str_from_inifile[200];
+		char str_from_inifile[200];
 			GetPrivateProfileString("common","arrow","失敗",str_from_inifile,200,m_IniFile.c_str());
-			assimp_scene = importer.ReadFile(str_from_inifile,0);
-			if( !assimp_scene){printf("ロード失敗");}
-			assimp_mesh=assimp_scene->mMeshes[0];
-			assimp_verts=assimp_mesh->mVertices;
-			//assimが一時的なもので済むかも。
-			glBegin(assimp_mesh->mPrimitiveTypes);
-			for(int i=0;i<assimp_mesh->mNumFaces;i++){
-				glNormal3fv(&assimp_mesh->mNormals[assimp_mesh->mFaces[i].mIndices[0]].x);
-				glVertex3fv(&assimp_verts[assimp_mesh->mFaces[i].mIndices[0]].x);
-				glNormal3fv(&assimp_mesh->mNormals[assimp_mesh->mFaces[i].mIndices[1]].x);
-				glVertex3fv(&assimp_verts[assimp_mesh->mFaces[i].mIndices[1]].x);
-				glNormal3fv(&assimp_mesh->mNormals[assimp_mesh->mFaces[i].mIndices[2]].x);
-				glVertex3fv(&assimp_verts[assimp_mesh->mFaces[i].mIndices[2]].x);
+			Ply ply_data;
+			ply_data.LoadPlyData(str_from_inifile);
+			
+			glBegin(GL_TRIANGLES);
+			for(int i=0;i<ply_data.mFacenum;i++){
+				ply_data.m_Normals[ply_data.m_Indices[i]].glNormal();
+				ply_data.m_Verts[ply_data.m_Indices[i]].glVertex();
 			}
 			glEnd();
 			glEndList();
