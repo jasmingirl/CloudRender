@@ -2,9 +2,6 @@
 extern CCloudRender *g_Render;
 const float CENTER_ELE=92.7716980f;//レーダー観測地点での高度m
 stringstream FILENAME;
-float ELERANGE=74.0f/1024.0f;
-
-
 
 /*!
 	@brief コンストラクタ glewInitよりも前にやっていい初期化をここでする。PrivateProfileで初期設定読み込むのもここ
@@ -15,35 +12,34 @@ CCloudRender::CCloudRender(const vec2<int>& _pos)
 	,m_fWindSpeed(0.02f)
 	,m_Karmapara(0.01f)//生まれ変わりやすを支配するパラメータ あとでロシアンルーレット形式風アニメにも使おうかな	
 	,m_IniFile("../data/setting.ini")
-	,m_ZScale(ELERANGE)
 	,m_ClipDirection(0)//x
+	,m_ZScale(1.0)
 {	
+	char str_from_inifile[200];
+	GetPrivateProfileString("common","elerange","0.072265625",str_from_inifile,200,m_IniFile.c_str());
+	m_fixedZScale=atof(str_from_inifile);
 	m_FirstPeriodSum=m_SecondPeriodSum=m_nFrame=0;
 	m_RedPoint.set(0.25f,0.0f,0.0f);
-	char str_from_inifile[200];
+	
 	GetPrivateProfileSectionNames(str_from_inifile,200,m_IniFile.c_str());
 	m_DataKey[0]="iruma";
 	//m_DataKey[0]="anjou";//これはhard-codeじゃなくて上の関数でなんとかするべき
 	m_DataKey[1]="komaki";
 	m_nFileId=GetPrivateProfileInt(m_DataKey[1].c_str(),"frame",88,m_IniFile.c_str());
 	srand((unsigned int)time(NULL));//あとで風アニメで使用する
-	///黄色い点の初期化
-	m_YellowPoints=new list<vec3<float>>[YELLOW_PT_NUM];
-	for(int i=0;i<YELLOW_PT_NUM;i++){//重ねて隠しておく
-		m_YellowPoints[i].assign(TRAIL_NUM,vec3<float>((float)(rand()%100)*0.01f-0.5f,(float)(rand()%100)*0.01f-0.5f,(float)(rand()%100)*0.01f));
-	}
+	
 	mFontColor.set(1.0,1.0,1.0,1.0);//文字色　背景が白の時は黒・背景が黒の時は白
 	mBackGround.set(0.0,0.0,0.0,0.0);
 	m_TransForm=new CTransForm();
 	
 	GetPrivateProfileString("common","dir","../data/",str_from_inifile,200,m_IniFile.c_str());
-	m_IsoSurface=new CIsoSurface(ELERANGE);
+	m_IsoSurface=new CIsoSurface();
 
 	m_Light=new CLight(color<float>(185.0f/255.0f,194.0f/255.0f,137.0f/255.0f,1.0f),
 		color<float>(1.0f,254.0f/255.0f,229.0f/255.0f,1.0f),
 		vec3<float>(0.0f,1.0f,0.0f),GL_LIGHT0);
 	m_Land=new CLand();
-	m_Measure=new CMeasure(ELERANGE);
+	m_Measure=new CMeasure();
 
 	
 	GetPrivateProfileString(m_DataKey[0].c_str(),"name","失敗",str_from_inifile,200,m_IniFile.c_str());
@@ -52,16 +48,7 @@ CCloudRender::CCloudRender(const vec2<int>& _pos)
 	m_ToggleText[0]=string(str_from_inifile)+"にする";
 	m_threshold=(unsigned char)GetPrivateProfileInt(m_DataKey[0].c_str(),"threshold",64,m_IniFile.c_str());
 	cout<<"初期設定閾値:"<<(int)m_threshold<<" 最大値"<<(int)m_dataMax<<endl;
-	m_ValidPtNum=0;
-	GetPrivateProfileString(m_DataKey[0].c_str(),"wind","../data/Typhoon1_32.jmesh",str_from_inifile,200,m_IniFile.c_str());
-	
-	jmesh::Load(str_from_inifile,&m_Wind.xy,&m_Wind.z,&m_rawdata);
-	m_renderdata=new vec3<float>[m_Wind.total()];
-	// m_renderdataにレンダリング用に都合の良いように加工したm_rawdataを詰め込む。
-	ChangeWindSpeed();
-	// 風専用の伝達関数の読み込み　１回め　伝達関数は、、、何か汎用的なフォーマットにしたいなぁ。
-	GetPrivateProfileString("common","windtf","../data/tf/rainbow-256.tf",str_from_inifile,200,m_IniFile.c_str());
-	miffy::ReadFileToTheEnd(str_from_inifile,&m_ucWindTF);
+	///黄色い点の初期化
 	m_ClippingEquation[0]=-1.0;m_ClippingEquation[1]=0.0;m_ClippingEquation[2]=0.0;m_ClippingEquation[3]=0.5;
 
 	
@@ -120,7 +107,6 @@ bool CCloudRender::AnimateRandomFadeOut(){
 		return 0;
 }
 void CCloudRender::VolumeArrayInit(size_t _size){
-	cout<<"ArrayInit="<<_size<<endl;
 	m_ucIntensity=new unsigned char[_size];
 	m_Dynamic=new  vec3<float>[_size];
 	m_Static=new CParticle[_size];
@@ -148,17 +134,16 @@ bool CCloudRender::BlendTime(){
 	m_fTimeRatio+=0.1f;
 	return 0;
 }
-void CCloudRender::ChangeWindSpeed(){
+void CCloudRender::ChangeWindSpeed(float _windspeed,vec3<float>* _rawdata,vec3<float>** _renderdata){
 		for(int z=0;z<m_Wind.z;z++){
 		for(int y=0;y<m_Wind.xy;y++){
 			for(int x=0;x<m_Wind.xy;x++){
 				int i=(z*m_Wind.xy+y)*m_Wind.xy+x;
-				m_renderdata[i]=m_rawdata[i];
-				m_renderdata[i]*=m_fWindSpeed;//1.0/8.0
+				(*_renderdata)[i]=_rawdata[i];
+				(*_renderdata)[i]*=_windspeed;//1.0/8.0
 			}
 		}
 	}
-
 }
 void CCloudRender::ChangeVolData(){//6分おきのデータにする、ボタンを押すとここに来る。
 	m_Flags&=~MY_CLOUD;//処理が終わるまで雲を非表示にしておく
@@ -334,43 +319,83 @@ void CCloudRender::Reshape(){
 	m_Land->InitCamera(m);
 	
 }
-
-/*!
+void CCloudRender::LoadWindData(const string _inifilepath,vec3<float>** _winddata){
+	char str_from_inifile[200];
+	//風の読み込み
+	GetPrivateProfileString(m_DataKey[(m_Flags & MY_VOLDATA)>>10].c_str(),"wind"," ",str_from_inifile,200,_inifilepath.c_str());
+	m_Wind.Read(str_from_inifile);
+	m_renderdata=new vec3<float>[m_Wind.total()];
+	*_winddata=new vec3<float>[m_Wind.total()];
+	ifstream ifs(str_from_inifile,ios::binary);
+	ifs.read((char*)(*_winddata),m_Wind.total()*m_Wind.each_voxel);
+	ifs.close();
+	ChangeWindSpeed(m_fWindSpeed,m_rawdata,&m_renderdata);//レンダリング用の風データ
+	m_YellowPoints=new list<vec3<float>>[YELLOW_PT_NUM];
+	for(int i=0;i<YELLOW_PT_NUM;i++){//重ねて隠しておく
+		//randだけど、風のないところには置きたくない
+		vec3<float> pos((float)(rand()%m_Wind.xy),(float)(rand()%m_Wind.xy),(float)(rand()%m_Wind.z));
+		int windindex=((int)(pos.z*m_Wind.xy+pos.y)*m_Wind.xy+(int)(pos.x));
+		if(m_renderdata[windindex].zero()){continue;}//行き着いた先が無風状態だった場合
+		//不運だったが飛ばし。リセットしない。
+		pos.x=pos.x/(float)m_Wind.xy-0.5f;
+		pos.y=pos.y/(float)m_Wind.xy-0.5f;
+		pos.z=pos.z/(float)m_Wind.z;
+		m_YellowPoints[i].assign(TRAIL_NUM,pos);
+	}
+	// 風専用の伝達関数の読み込み　１回め　伝達関数は、、、何か汎用的なフォーマットにしたいなぁ。
+	GetPrivateProfileString("common","windtf","../data/tf/rainbow-256.tf",str_from_inifile,200,_inifilepath.c_str());
+	miffy::ReadFileToTheEnd(str_from_inifile,&m_ucWindTF);
+	m_CallList=glGenLists(1);
+	glNewList(m_CallList,GL_COMPILE);
+	//矢印オブジェクトのロード　
 	
-*/
+	GetPrivateProfileString("common","arrow","失敗",str_from_inifile,200,_inifilepath.c_str());
+	Ply ply_data;
+	ply_data.LoadPlyData(str_from_inifile);
+
+	glBegin(GL_TRIANGLES);
+	for(int i=0;i<ply_data.mTriangleNum*3;i++){
+		ply_data.m_Normals[ply_data.m_Indices[i]].glNormal();
+		ply_data.m_Verts[ply_data.m_Indices[i]].glVertex();
+	}
+	glEnd();
+	glEndList();
+
+}
 void CCloudRender::LoadVolData(){
 	
-	char str[200];
-	//風の読み込み
-	GetPrivateProfileString(m_DataKey[(m_Flags & MY_VOLDATA)>>10].c_str(),"wind","../data/Typhoon1_32.jmesh",str,200,m_IniFile.c_str());
-	jmesh::Load(str,&m_Wind.xy,&m_Wind.z,&m_rawdata);
-	m_renderdata=new vec3<float>[m_Wind.total()];
-	ChangeWindSpeed();
+	char str_from_inifile[200];
 	//ボリュームデータ読み込み
-	GetPrivateProfileString(m_DataKey[(m_Flags & MY_VOLDATA)>>10].c_str(),"file","失敗",str,200,m_IniFile.c_str());
+	GetPrivateProfileString(m_DataKey[(m_Flags & MY_VOLDATA)>>10].c_str(),"file","失敗",str_from_inifile,200,m_IniFile.c_str());
 	if(m_Max3DTexSize<256){//ロースペックマシン対策
-		GetPrivateProfileString(m_DataKey[0].c_str(),"lowfile","失敗",str,200,m_IniFile.c_str());
+		GetPrivateProfileString(m_DataKey[0].c_str(),"lowfile","失敗",str_from_inifile,200,m_IniFile.c_str());
 	}
-	jmesh::Load(str,&m_VolSize.xy,&m_VolSize.z,&m_ucStaticIntensity);
+	m_VolSize.Read(str_from_inifile);//ファイル名からサイズを解析
+	//これからバイナリ部を読むぞ
+	ifstream ifs(str_from_inifile,ios::binary);
+	m_ucStaticIntensity=new unsigned char[m_VolSize.total()];
 	VolumeArrayInit(m_VolSize.total());	
-	memcpy(m_ucIntensity,m_ucStaticIntensity,sizeof(unsigned char)*m_VolSize.total());
+	ifs.read((char*)m_ucStaticIntensity,m_VolSize.total()*m_VolSize.each_voxel);
+	memcpy(m_ucIntensity,m_ucStaticIntensity,m_VolSize.total());
+	ifs.close();
 	m_dataMax=(unsigned char)GetPrivateProfileInt(m_DataKey[0].c_str(),"datamax",256,m_IniFile.c_str());
-	m_ValidPtNum=0;
-	if(m_Flags& MY_VOLDATA){//6分おきに変わるデータの場合。
-		InitPoints(m_Static,0);
-		PrepareAnimeVol();//ここで風データ読むのかな
-	}else{
-		InitPoints(m_Static,64);
-	}
-	// 0-m_ValidPtNumの間で変化し、
 	
+	if(m_Flags& MY_VOLDATA){//6分おきに変わるデータの場合。
+		m_ValidPtNum=InitPoints(&m_Static,0,m_ucStaticIntensity);
+		m_IsoSurface->Reload(m_nFileId);
+		//PrepareAnimeVol();//ここで風データ読むのかな//ファイルスレッドにあるべきものを、ここで読んでるのが間違い。
+	}else{
+		m_ValidPtNum=InitPoints(&m_Static,64,m_ucStaticIntensity);
+	}
+	
+	// 0-m_ValidPtNumの間で変化し、
 	m_RandomTable=new bool[m_ValidPtNum];//乱数テーブル配列確保
 	for(int i=0;i<m_ValidPtNum;i++){//初期位置を記憶
 		m_Dynamic[i]=m_Static[i].pos;
 		int randval=rand()%m_ValidPtNum;
 		m_RandomTable[i]= randval<(int)((float)m_ValidPtNum*m_Karmapara) ? true : false;
-		//printf("%d,%d,%d\n",randval,(int)((float)m_ValidPtNum*m_Karmapara),m_RandomTable[i]);
 	}
+	
 }
 /*!
 	@brief glewInit()した後にやりたい初期化処理
@@ -384,20 +409,20 @@ void CCloudRender::Init(){
 	glTexEnvf(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_COMBINE);
 	glTexEnvf(GL_POINT_SPRITE,GL_COORD_REPLACE,GL_TRUE);
 	glActiveTexture(GL_TEXTURE0);
-	tga::Load_Texture_8bit_Alpha("../data/texture/gaussian64.tga",&m_GausTexSamp);
-	mProgram = new CGLSLReal("flowpoints.vert","passthrough.frag");//このへん変えてからおかしくなりましたーーーー
+	//なんか、コイツのせいでボリュームデータが見えなくなっちゃった。
+	if(!tga::Load_Texture_8bit_Alpha("../data/texture/gaussian64.tga",&m_GausTexSamp)){assert(!"ガウシアンテクスチャが見つかりません！");}
+	mProgram = new CGLSLReal("flowpoints.vert","passthrough.frag");
 	mProgram->SetGaussianParameter(GL_TEXTURE0);
-	LoadVolData();
+	LoadWindData(m_IniFile,&m_rawdata);//風関連データのロード
+	LoadVolData();//ボリュームデータのロード
 	m_IsoSurface->Init(m_IniFile.c_str());
-	
-	
+
 	//ボリュームをロードし終え無いと、点の大きさは決まらない。
 	m_PtPara=new CPointParameter(1.7f,8,m_VolSize.z);
 	mProgram->SetDataPointer("uTransParency",&m_PtPara->mTransParency);
 	mProgram->SetDataPointer("pointsize",&m_PtPara->mPointSize);
 	glEnableClientState(GL_VERTEX_ARRAY);
 	mProgram->AttribPointer(sizeof(CParticle),(void*)(&m_Static[0].intensity));
-	//(1,GL_FLOAT,sizeof(CParticle),const_cast<float*>(&m_Static[0].intensity));
 	glEnableClientState(GL_VERTEX_ARRAY);
 	glVertexPointer(3,GL_FLOAT,sizeof(CParticle),&(m_Static[0].pos.x));
 	glEnableClientState(GL_NORMAL_ARRAY);
@@ -419,38 +444,24 @@ void CCloudRender::Init(){
 	color<float> *projectedRainbowVol;
 	GenerateProjectedRainbow<unsigned char>(m_ucIntensity,m_VolSize.xy*m_VolSize.xy,m_VolSize.z,m_dataMax,m_threshold,projectedRainbowVol);
 	
-	m_Land->Init(projectedRainbowVol,m_VolSize.xy);
+	m_Land->Init(projectedRainbowVol,m_VolSize.xy,m_IniFile,m_DataKey[0]);
 	glTexEnvf(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_COMBINE);
  
-			glTexEnvf(GL_TEXTURE_ENV,GL_COMBINE_RGB,GL_MODULATE);
-			glTexEnvf(GL_TEXTURE_ENV,GL_COMBINE_ALPHA,GL_MODULATE);
+	glTexEnvf(GL_TEXTURE_ENV,GL_COMBINE_RGB,GL_MODULATE);
+	glTexEnvf(GL_TEXTURE_ENV,GL_COMBINE_ALPHA,GL_MODULATE);
  
-			glTexEnvf(GL_TEXTURE_ENV,GL_SRC0_RGB,GL_PRIMARY_COLOR);
-			glTexEnvf(GL_TEXTURE_ENV,GL_SRC1_RGB,GL_PRIMARY_COLOR);//glColor
+	glTexEnvf(GL_TEXTURE_ENV,GL_SRC0_RGB,GL_PRIMARY_COLOR);
+	glTexEnvf(GL_TEXTURE_ENV,GL_SRC1_RGB,GL_PRIMARY_COLOR);//glColor
  
-			glTexEnvf(GL_TEXTURE_ENV,GL_SRC0_ALPHA,GL_TEXTURE);
-			glTexEnvf(GL_TEXTURE_ENV,GL_SRC1_ALPHA,GL_PRIMARY_COLOR);
-			m_CallList=glGenLists(1);
-			glNewList(m_CallList,GL_COMPILE);
-		//矢印データの読み込み
-		char str_from_inifile[200];
-			GetPrivateProfileString("common","arrow","失敗",str_from_inifile,200,m_IniFile.c_str());
-			Ply ply_data;
-			ply_data.LoadPlyData(str_from_inifile);
+	glTexEnvf(GL_TEXTURE_ENV,GL_SRC0_ALPHA,GL_TEXTURE);
+	glTexEnvf(GL_TEXTURE_ENV,GL_SRC1_ALPHA,GL_PRIMARY_COLOR);
 			
-			glBegin(GL_TRIANGLES);
-			for(int i=0;i<ply_data.mFacenum;i++){
-				ply_data.m_Normals[ply_data.m_Indices[i]].glNormal();
-				ply_data.m_Verts[ply_data.m_Indices[i]].glVertex();
-			}
-			glEnd();
-			glEndList();
 	}
 /*!
 もともとは、このCloudRenderクラスが親ウィンドウでGLColorDialogが子ウィンドウだった。
 */
 
-void CCloudRender::InitPoints(CParticle* _voxel,unsigned char _thre){
+int CCloudRender::InitPoints(CParticle** _voxel,unsigned char _thre,unsigned char* _rawdata){
 
 	static vec3<float> sample1;//法線の計算のために必要
 	static vec3<float> sample2;
@@ -466,40 +477,40 @@ void CCloudRender::InitPoints(CParticle* _voxel,unsigned char _thre){
 				idy= y;
 				idz= z;
 				int index=m_VolSize.serialId(idx,idy,idz);
-				if(m_ucStaticIntensity[index]>=(float)_thre){
+				if(_rawdata[index]>=(float)_thre){
 
-					_voxel[c].pos=vec3<float>(
+					(*_voxel)[c].pos=vec3<float>(
 						(float)idx/(float)m_VolSize.xy-0.5f,
 						(float)idy/(float)m_VolSize.xy-0.5f,
 						(float)idz/(float)m_VolSize.z);
 					//法線を計算する
 					if(z>0&& y>0 && x>0 && z<m_VolSize.z-1 && y<m_VolSize.xy-1 && x<m_VolSize.xy-1){
-						sample1.x=(float)m_ucStaticIntensity[m_VolSize.serialId(x+1,y,z)];
-						sample2.x=(float)m_ucStaticIntensity[m_VolSize.serialId(x-1,y,z)];
-						sample1.y=(float)m_ucStaticIntensity[m_VolSize.serialId(x,y+1,z)];
-						sample2.y=(float)m_ucStaticIntensity[m_VolSize.serialId(x,y-1,z)];
-						sample1.z=(float)m_ucStaticIntensity[m_VolSize.serialId(x,y,z+1)];
-						sample2.z=(float)m_ucStaticIntensity[m_VolSize.serialId(x,y,z-1)];
-						_voxel[c].normal=sample2-sample1;
-						_voxel[c].normal.normalize();
+						sample1.x=(float)_rawdata[m_VolSize.serialId(x+1,y,z)];
+						sample2.x=(float)_rawdata[m_VolSize.serialId(x-1,y,z)];
+						sample1.y=(float)_rawdata[m_VolSize.serialId(x,y+1,z)];
+						sample2.y=(float)_rawdata[m_VolSize.serialId(x,y-1,z)];
+						sample1.z=(float)_rawdata[m_VolSize.serialId(x,y,z+1)];
+						sample2.z=(float)_rawdata[m_VolSize.serialId(x,y,z-1)];
+						(*_voxel)[c].normal=sample2-sample1;
+						(*_voxel)[c].normal.normalize();
 					}else{
-						_voxel[c].normal=vec3<float>(0.0f,1.0f,0.0f);
+						(*_voxel)[c].normal=vec3<float>(0.0f,1.0f,0.0f);
 					}
-					_voxel[c].intensity=((float)m_ucStaticIntensity[index]/(float)m_dataMax);
+					(*_voxel)[c].intensity=((float)_rawdata[index]/(float)m_dataMax);
 					c++;
 				}//end of threshold
 
 			}
 		}
 	}
-	m_ValidPtNum=c;
+	return c;
 }
 int CCloudRender::incrementThreshold(int _th){//閾値を増やしたら、つめなおさないとだめよね。
 	cout<<"閾値"<<m_threshold+_th<<endl;
 	if(m_threshold+_th<=0){return 0;}
 	if(m_threshold+_th<m_dataMax){
 		m_threshold+=_th;
-		InitPoints(m_Static,m_threshold);
+		m_ValidPtNum=InitPoints(&m_Static,m_threshold,m_ucStaticIntensity);
 		return 0;
 	}else {
 		cout<<"最大値より大きい閾値はダメ　最大値"<<int(m_dataMax)<<"閾値"<<int(m_threshold)<<endl;
@@ -519,7 +530,8 @@ bool CCloudRender::Draw(){
 	Reshape();
 	m_TransForm->Enable();
 	glPushMatrix();
-		glScalef(1.0,1.0,m_ZScale);
+	glScalef(1.0,1.0,m_ZScale);
+			
 	glClipPlane(GL_CLIP_PLANE0,m_ClippingEquation);
 	glEnable(GL_CLIP_PLANE0);
 		m_Land->SetClipPlane(m_ClippingEquation);/// @note　本来地図はクリップ情報は要らないけど、断面図を投影する関係で要ることになってしまった。
@@ -527,6 +539,7 @@ bool CCloudRender::Draw(){
 		if(m_Flags & MY_LAND){
 			m_Land->Run();
 		}
+		
 		if(m_Flags & MY_ISOSURFACE){m_Flags&=~MY_CLOUD;m_IsoSurface->Run();}
 		if(m_Flags & MY_MEASURE){m_Measure->Draw();}
 	
@@ -566,11 +579,15 @@ bool CCloudRender::Draw(){
 			glDisable(GL_BLEND);
 			glUseProgram(0);
 		}//end of 断面の描画
+		
 		if(m_Flags & MY_CLOUD){
+			glPushMatrix();
+			glScalef(1.0,1.0,m_fixedZScale);//なぜこれが効かない？
 			//等値面がいるときも断面を出したい、という都合上ここに配置
 			glUseProgram(mProgram->m_Program);
 				glEnable(GL_POINT_SPRITE);//これでgl_PointCoordが有効になる これで見た目がかなり変わる。
 					glEnable(GL_VERTEX_PROGRAM_POINT_SIZE);//こいつはdisableしなくていい？？？！！！
+					glGetFloatv(GL_MODELVIEW_MATRIX,m);
 					mProgram->UpdateEveryFrame(m,m_TransForm->LocalCam().toVec3());
 
 						glDepthMask(GL_FALSE);
@@ -604,6 +621,7 @@ bool CCloudRender::Draw(){
 				glDisable(GL_POINT_SPRITE);
 		
 			glUseProgram(0);
+			glPopMatrix();//pop fixedZScale
 		}
 		
 		
@@ -637,20 +655,19 @@ bool CCloudRender::Draw(){
 		}
 		if(m_Flags & MY_YELLOW_POINTS){
 			static GLfloat atten[] = { 0.0, 0.0, 0.8 };
+			glDisable(GL_LIGHTING);
 			glEnable(GL_POINT_SPRITE);
 			glPointParameterfv(GL_POINT_DISTANCE_ATTENUATION,atten);
 			glDepthMask(GL_FALSE);
 			glEnable(GL_BLEND);
 			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);//back-to-front
-
-
 			glActiveTexture ( GL_TEXTURE0 );
 			glEnable ( GL_TEXTURE_2D );
 			glBindTexture ( GL_TEXTURE_2D,m_GausTexSamp );
 			//風を表すサンプル点群のレンダリング
 			glPointSize(20);
 			glBegin(GL_POINTS);
-			glColor3f(1.0,1.0,0.0);
+			glColor3f(1.0,1.0,0.0);//なぜこれが無効になるのか
 			for(int i=0;i<YELLOW_PT_NUM;i++){
 				m_YellowPoints[i].front().glVertex();
 			}
@@ -677,7 +694,14 @@ bool CCloudRender::Draw(){
 				for(int i=0;i<YELLOW_PT_NUM;i++){
 					bool is_need_reset=BlowVoxelWithTrail(&m_YellowPoints[i]);
 					if(is_need_reset){//resetしたい場合
-						fill(m_YellowPoints[i].begin(),m_YellowPoints[i].end(),vec3<float>((float)(rand()%100)*0.01f-0.5f,(float)(rand()%100)*0.01f-0.5f,(float)(rand()%100)*0.01f));
+						//randだけど、風のないところには置きたくない
+						vec3<float> pos((float)(rand()%m_Wind.xy),(float)(rand()%m_Wind.xy),(float)(rand()%m_Wind.z));
+						int windindex=((int)(pos.z*m_Wind.xy+pos.y)*m_Wind.xy+(int)(pos.x));
+						if(m_renderdata[windindex].zero()){continue;}//行き着いた先が無風状態だった場合　不運だったが飛ばし。リセットしない。
+						pos.x=pos.x/(float)m_Wind.xy-0.5f;
+						pos.y=pos.y/(float)m_Wind.xy-0.5f;
+						pos.z=pos.z/(float)m_Wind.z;
+						fill(m_YellowPoints[i].begin(),m_YellowPoints[i].end(),pos);//trailだからfillする　すべて同じ値で初期化。
 					}
 				}
 			}
@@ -726,7 +750,6 @@ void CCloudRender::JoyStick(){
 		m_Flags|=MY_FLYING;
 		printf("スタート地点へ\n");
 		m_Flags|=MY_ANIMATE;//風アニメ有効化
-		zScale=0.3f;
 		}
 	if(buttons[glfw::L]){//L
 		//mRad+=M_PI/1800.0;
@@ -757,14 +780,12 @@ void CCloudRender::PrepareAnimeVol(){
 	ReadFile(handle,m_ucStaticIntensity,sizeof(unsigned char)*m_VolSize.total(),&dwnumread,NULL);
 	CloseHandle(handle);
 	
-	InitPoints(mBeforeVoxel,0);
+	m_ValidPtNum=InitPoints(&mBeforeVoxel,0,m_ucStaticIntensity);
 	m_nFileId++;
-	stringstream cdbg;
-	cdbg<<m_nFileId<<"フレーム目"<<endl;
-	OutputDebugString(cdbg.str().c_str());
+	cout<<m_nFileId<<"フレーム目"<<endl;	
 	if(m_nFileId>163){m_nFileId=24;}
 	
-	//nFrame++した後のを読み込む
+	//nFrame++した後のを読み込む(次フレームの準備)
 	filename.str("");
 	filename<<"../data/cappi/cappi"<<m_nFileId<<".jmesh";
 	handle = CreateFile(filename.str().c_str(), GENERIC_READ,FILE_SHARE_READ, NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL, NULL );
@@ -772,16 +793,17 @@ void CCloudRender::PrepareAnimeVol(){
 	ReadFile(handle,m_ucStaticIntensity,sizeof(unsigned char)*m_VolSize.total(),&dwnumread,NULL);
 	CloseHandle(handle);
 
-	InitPoints(mAfterVoxel,0);
+	m_ValidPtNum=InitPoints(&mAfterVoxel,0,m_ucStaticIntensity);
 	//6分おきのデータは各風データを持っている
 	//LoadVelocityData();
 	filename.str("");
 	filename<<"../data/vvp/vvp"<<m_nFileId<<".jmesh";
+	//cout<<"風データ"<<filename.str()<<endl;
 	handle = CreateFile(filename.str().c_str(), GENERIC_READ,FILE_SHARE_READ, NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL, NULL );
 	SetFilePointer(handle,sizeof(JMeshHeader)+sizeof(J3Header),NULL,FILE_BEGIN);
 	ReadFile(handle,&m_rawdata[0].x,sizeof(vec3<float>)*m_Wind.total(),&dwnumread,NULL);
 	CloseHandle(handle);
-	ChangeWindSpeed();
+	ChangeWindSpeed(m_fWindSpeed,m_rawdata,&m_renderdata);
 	//等値面も読まなきゃ
 	if(m_Flags& MY_ISOSURFACE){
 		m_IsoSurface->Reload(m_nFileId);
