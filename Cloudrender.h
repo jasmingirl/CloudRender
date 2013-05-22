@@ -31,7 +31,6 @@ using namespace std;
 #include <miffy/scene/light.h>
 #include <miffy/volren/tf.h>
 #include <miffy/fileread.h>
-#include <miffy/fileformat/ply.h>//assimpはバグるのでやめる！！！
 #include <mmsystem.h>
 #include "GLSLReal.h"//雲シェーダ
 #include "GLSLRainbow.h"//虹シェーダ
@@ -77,6 +76,18 @@ private:
 struct sVolSize{
 	int xy;
 	int z;
+	unsigned short each_voxel;//1ボクセルあたり何サイズか
+	void Read(const char* _str){//名前_32_z32_12byte.raw　てかんじのファイル名を解析する
+		stringstream ss(_str);
+		string s;
+		getline(ss, s, '_');//最初はファイル名
+		ss>>xy;
+		getline(ss, s, 'z');//
+		ss>>z;
+		getline(ss, s, '_');//
+		ss>>each_voxel;
+		if(each_voxel>64){assert(!"ファイル名の形式が間違っています。cloud-er_128_z74_1byte.raw←こういうかんじ");}
+	}
 	int total(){return xy*xy*z;}
 	int serialId(int _x,int _y,int _z){return ((_z*xy+_y)*xy+_x);}
 };
@@ -195,9 +206,10 @@ public:
 	void VolumeArrayInit(size_t _size);///< 配列の初期化
 	void Init();///< 初期化処理
 	void Reshape();///< カメラの初期化
-	void InitPoints(CParticle* _voxel,unsigned char _thre);///< ボクセルの初期化。閾値以上のものをm_Staticなどに詰め込む
+	int InitPoints(CParticle** _voxel,unsigned char _thre,unsigned char* _rawdata);///< ボクセルの初期化。閾値以上のものをm_Staticなどに詰め込む
 	void ChangeVolData();///< ボリュームデータを変える　引数にchar*があったほうがいいかも？
 	void LoadVolData();///< 初期化の時も、changeの時も両方で共通のもの
+	void LoadWindData(const string _inifilepath,vec3<float>** _winddata);
 	//@}
 	/*! @name OpenGLコールバック関数*/
 	//@{
@@ -208,7 +220,7 @@ public:
 	int incrementThreshold(int _th);///< 閾値を増やす。未知のデータに遭遇した時に使うことがある
 	void PrintKeyHelp();///< キーボードヘルプ
 	void UpdatePara();///< シェーダに渡すパラメータのアップデート
-	void ChangeWindSpeed();///< 風の速さを、好みに合わせて調整する。
+	void ChangeWindSpeed(float _windspeed,vec3<float>* _rawdata,vec3<float>** _renderdata);///< 風の速さを、好みに合わせて調整する。
 	void Reset();///< 風粒子アニメのリセット
 	//@}
 
@@ -280,7 +292,6 @@ private:
 	int m_ValidPtNum;///< 閾値以下だった点の数　閾値と連動する
 	string m_ToggleText[2];///< 0:特機の雲 1:6分おきの雲
 	float m_fWindSpeed;///<  風の速さ調節パラメータ
-	float zScale;///<  ボリュームデータはz方向が足りないのが多いのでこうする
 	//@}
 	/*! @name ボリュームデータごとに固定の変数*/
 	//@{
@@ -304,6 +315,7 @@ private:
 	CGLSLReal *mProgram;///< GLSL
 	CGLSLRainbow *mRainbowProgram;///< 雲を虹色にレンダリングするシェーダ
 	string m_DataKey[2];///< ボリュームデータの識別
+	float m_fixedZScale;///< xy平面に対する高さの割合の初期値
 	//@}
 	//@}
 	/*! @name デバッグ用　時間測定、プロファイリングしたりする*/
