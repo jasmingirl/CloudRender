@@ -10,6 +10,7 @@ CCloudRender::CCloudRender(const vec2<int>& _pos)
 	:m_Flags(MY_CLOUD|MY_LAND)
 	,m_fTimeRatio(0.0f)
 	,m_fWindSpeed(0.02f)
+	,m_Karmapara(0.01f)//生まれ変わりやすを支配するパラメータ あとでロシアンルーレット形式風アニメにも使おうかな	
 	,m_IniFile("../data/setting.ini")
 	,m_ClipDirection(0)//x
 	,m_ZScale(1.0)
@@ -47,22 +48,77 @@ CCloudRender::CCloudRender(const vec2<int>& _pos)
 	m_ToggleText[1]=string(str_from_inifile)+"にする";
 	GetPrivateProfileString(m_DataKey[1].c_str(),"name","失敗",str_from_inifile,200,m_IniFile.c_str());
 	m_ToggleText[0]=string(str_from_inifile)+"にする";
-	
+	m_threshold=(unsigned char)GetPrivateProfileInt(m_DataKey[0].c_str(),"threshold",64,m_IniFile.c_str());
+	cout<<"初期設定閾値:"<<(int)m_threshold<<" 最大値"<<(int)m_dataMax<<endl;
 	///黄色い点の初期化
-	m_ClippingEquation[0]=-1.0;m_ClippingEquation[1]=0.0;m_ClippingEquation[2]=0.0;m_ClippingEquation[3]=0.7;
+	m_ClippingEquation[0]=-1.0;m_ClippingEquation[1]=0.0;m_ClippingEquation[2]=0.0;m_ClippingEquation[3]=0.5;
 
 	
 }
+bool CCloudRender::AnimateRandomFadeOut(){
+		m_nFrame++;
+		//箱やしきい値に関係なくランダムにフェードアウト
+		//ここは速さが大事。
+		//位置の更新
+		//zの範囲も0.0-1.0*ELERANGEと考えてよいのかな。
+		
+		//演算子のオペレータの呼び出しは遅くなる
+		//インライン化しても遅い
+		//static unsigned char* previous_intensity=new unsigned char[m_VolSize.total()];//断面図を動的に変化させるために使う。
+		
+		//if(m_bSliceVisible){//最初のスライスを記憶
+		//	memcpy(previous_intensity,m_ucIntensity,sizeof(unsigned char)*m_VolSize.total());
+		//}
+		for(int i=0;i<m_ValidPtNum;i++){
+			//無作為に生まれ変わるm_Karmapara
+			if(m_RandomTable[(m_nFrame+i)%m_ValidPtNum]){ResetVoxelPosition(i);continue;}//10msec
+			unsigned long system_time_first= timeGetTime();
+			bool is_need_reset=BlowVoxel(&m_Dynamic[i]);//136msec
+			unsigned long system_time_second= timeGetTime();
+			m_FirstPeriodSum+=system_time_second-system_time_first;
+			//12msec
+			if(is_need_reset){ResetVoxelPosition(i);continue;}
+			unsigned long system_time_third= timeGetTime();
+			m_SecondPeriodSum+=system_time_third-system_time_second;
+			
+			
+			////断面図にも風を反映させるため　
+			//if(m_bSliceVisible){
+			//	//粒子の位置が移動した後、断面テクスチャにそれを反映させる
+			//	vec3<float> n_indexpos;//0.0-1.0に正規化されているインデックス
+			//	n_indexpos.x=m_Dynamic[i].x+0.5f;//+shift;//現在の粒子の位置を0.0-1.0に正規化
+			//	n_indexpos.y=m_Dynamic[i].y+0.5f;
+			//	n_indexpos.z=m_Dynamic[i].z;
+			//
+			//	//もし配列の範囲を超えてしまったらテクスチャの位置はずらさない。
+			//	if(n_indexpos.x>1.0f){continue;}
+			//	if(n_indexpos.x<0.0f){continue;}
+			//	if(n_indexpos.y>1.0f){continue;}
+			//	if(n_indexpos.y<0.0f){continue;}
+			//	if(n_indexpos.z>1.0f){continue;}
+			//	if(n_indexpos.z<0.0f){continue;}
+			//	vec3<int> indexpos;
+			//	indexpos.x=n_indexpos.x*(float)(m_VolSize.xy-1);
+			//	indexpos.y=n_indexpos.y*(float)(m_VolSize.xy-1);
+			//	indexpos.z=n_indexpos.z*(float)(m_VolSize.z-1);
+			//	int next_index=m_VolSize.serialId(indexpos.x,indexpos.y,indexpos.z);
+			//	m_ucIntensity[next_index]=previous_intensity[i];//
+			//}
+	}//i loop
+		
+		return 0;
+}
 void CCloudRender::VolumeArrayInit(size_t _size){
 	m_ucIntensity=new unsigned char[_size];
+	m_Dynamic=new  vec3<float>[_size];
+	m_Static=new CParticle[_size];
+	mBeforeVoxel=new CParticle[_size];
+	mAfterVoxel=new CParticle[_size];
 }
 bool CCloudRender::BlendTime(){
-	//考えなおすべき
-	
 	if((m_Flags& MY_VOLDATA)==0)return 0;
 	if((m_Flags& MY_FLOW_DAYTIME)==0)return 0;
 	if(m_fTimeRatio>1.0f){m_fTimeRatio=1.0f;}
-	assert(!"未実装BlendTime");
 	int index=0;
 	//ファイルによって閾値以上の点の数が違うので
 	//x,y,zすべての場所で整理整頓する必要がある。
@@ -71,9 +127,9 @@ bool CCloudRender::BlendTime(){
 		for(int y=0;y<m_VolSize.xy;y++){
 			for(int x=0;x<m_VolSize.xy;x++){
 				index=(z*m_VolSize.xy+y)*m_VolSize.xy+x;
-				/*m_Static[index].pos=(mBeforeVoxel[index].pos*(1.0f-m_fTimeRatio))+(mAfterVoxel[index].pos*m_fTimeRatio);
+				m_Static[index].pos=(mBeforeVoxel[index].pos*(1.0f-m_fTimeRatio))+(mAfterVoxel[index].pos*m_fTimeRatio);
 				m_Static[index].normal=(mBeforeVoxel[index].normal*(1.0f-m_fTimeRatio))+(mAfterVoxel[index].normal*m_fTimeRatio);
-				m_Static[index].intensity=(mBeforeVoxel[index].intensity*(1.0f-m_fTimeRatio))+(mAfterVoxel[index].intensity*m_fTimeRatio);*/
+				m_Static[index].intensity=(mBeforeVoxel[index].intensity*(1.0f-m_fTimeRatio))+(mAfterVoxel[index].intensity*m_fTimeRatio);
 			}
 		}
 	}
@@ -98,6 +154,13 @@ void CCloudRender::ChangeVolData(){//6分おきのデータにする、ボタン
 	Destroy();//前の雲データの片付け
 	LoadWindData(m_IniFile,&m_rawdata);
 	LoadVolData();
+	if(m_Flags & MY_VOLDATA){//6分おきのデータはどうしても薄くなっちゃうから濃くする。
+		m_PtPara->mTransParency=5.0f;
+	}else{
+		m_PtPara->CalcTransParency(m_VolSize.z);//こいつがなぜか効かない？
+	}
+	m_PtPara->resizeVoxel(m_TransForm,(float)m_VolSize.xy);
+	mProgram->UpdatePointPara();
 	glUseProgram(0);
 	glUseProgram(mRainbowProgram->m_Program);
 	//断面図の伝達関数を変えないといけない。
@@ -113,7 +176,20 @@ void CCloudRender::ChangeVolData(){//6分おきのデータにする、ボタン
 	パラメータの変化を検知する。GLFWでKeyBoardを登録している場合は使用しない。
 */
 bool CCloudRender::CheckParameterChange(){
-	
+	static float previousKarma=m_Karmapara;
+	if(previousKarma!=m_Karmapara){//
+		printf("カルマ変数が変化した。乱数テーブルの作り直し\n");
+
+		//if(m_Flags&MY_ANIMATE){
+		//	m_Flags &=~MY_ANIMATE;//一時的にアニメを停止させる。
+		//}
+		for(int i=0;i<m_ValidPtNum;i++){//初期位置を記憶
+			int randval=rand()%m_ValidPtNum;
+			m_RandomTable[i]= randval<(int)((float)m_ValidPtNum*m_Karmapara) ? true : false;
+			previousKarma=m_Karmapara;
+		}
+		//m_Flags|=MY_ANIMATE;//アニメ復帰
+	}
 	static unsigned int lastVolData=m_Flags & MY_VOLDATA;
 	if((m_Flags & MY_VOLDATA)!=lastVolData){
 		m_Land->ToggleMapKind();
@@ -126,7 +202,18 @@ bool CCloudRender::CheckParameterChange(){
 		m_IsoSurface->m_VolData=(lastVolData>>10);
 		return 0;
 	}
-	
+	//点の大きさと透明度が変わったことを検知する
+	static float sLastTransparency=m_PtPara->mTransParency;
+	static float sLastPointSize=m_PtPara->mPointSize;
+	if(sLastTransparency!=m_PtPara->mTransParency){
+		mProgram->UpdatePointPara();
+		sLastTransparency=m_PtPara->mTransParency;
+	}
+	//あれ、pointsizeいつも同じだなーー
+	if(sLastPointSize!=m_PtPara->mPointSize){
+		mProgram->UpdatePointPara();
+		sLastPointSize=m_PtPara->mPointSize;
+	}
 	
 	static unsigned int sLastClipDirection=m_ClipDirection;
 	if(m_ClipDirection !=sLastClipDirection){
@@ -201,9 +288,15 @@ bool CCloudRender::CheckParameterChange(){
 }
 void CCloudRender::Destroy(){
 	delete[] m_ucIntensity;
+	delete[] m_ucStaticIntensity;
+	delete[] m_Dynamic;
+	delete[] m_Static;
+	delete[] mBeforeVoxel;
+	delete[] mAfterVoxel;
 	//風関係
 	delete[] m_renderdata;
 	delete[] m_rawdata;
+	delete[] m_RandomTable;
 	m_YellowPoints->clear();
 	cout<<"deleteしました"<<endl;
 }
@@ -277,7 +370,8 @@ bool CCloudRender::FileLoad(){//ファイルスレッド用関数
 void CCloudRender::Reshape(){
 	float m[16];
 	glGetFloatv(GL_PROJECTION_MATRIX,m);
-	
+	m_PtPara->resizeVoxel(m_TransForm,(float)m_VolSize.xy);
+	mProgram->UpdateEveryReshape(m);
 }
 void CCloudRender::LoadWindData(const string _inifilepath,vec3<float>** _winddata){
 	char str_from_inifile[200];
@@ -340,18 +434,29 @@ void CCloudRender::LoadVolData(){
 	m_VolSize.Read(str_from_inifile);//ファイル名からサイズを解析
 	//これからバイナリ部を読むぞ
 	ifstream ifs(str_from_inifile,ios::binary);
-	m_ucIntensity=new unsigned char[m_VolSize.total()];
+	m_ucStaticIntensity=new unsigned char[m_VolSize.total()];
 	VolumeArrayInit(m_VolSize.total());	
-	ifs.read((char*)m_ucIntensity,m_VolSize.total()*m_VolSize.each_voxel);
-	memcpy(m_ucIntensity,m_ucIntensity,m_VolSize.total());
+	ifs.read((char*)m_ucStaticIntensity,m_VolSize.total()*m_VolSize.each_voxel);
+	memcpy(m_ucIntensity,m_ucStaticIntensity,m_VolSize.total());
 	ifs.close();
 	m_dataMax=(unsigned char)GetPrivateProfileInt(m_DataKey[0].c_str(),"datamax",256,m_IniFile.c_str());
 	
 	if(m_Flags& MY_VOLDATA){//6分おきに変わるデータの場合。
+		
+		m_ValidPtNum=InitPoints(&m_Static,0,m_ucStaticIntensity);
 		m_IsoSurface->Reload(m_nFileId);
 		
+	}else{
+		m_ValidPtNum=InitPoints(&m_Static,64,m_ucStaticIntensity);
 	}
 	
+	// 0-m_ValidPtNumの間で変化し、
+	m_RandomTable=new bool[m_ValidPtNum];//乱数テーブル配列確保
+	for(int i=0;i<m_ValidPtNum;i++){//初期位置を記憶
+		m_Dynamic[i]=m_Static[i].pos;
+		int randval=rand()%m_ValidPtNum;
+		m_RandomTable[i]= randval<(int)((float)m_ValidPtNum*m_Karmapara) ? true : false;
+	}
 	
 }
 /*!
@@ -369,15 +474,23 @@ void CCloudRender::Init(){
 	glActiveTexture(GL_TEXTURE0);
 	//なんか、コイツのせいでボリュームデータが見えなくなっちゃった。
 	if(!tga::Load_Texture_8bit_Alpha("../data/texture/gaussian64.tga",&m_GausTexSamp)){assert(!"ガウシアンテクスチャが見つかりません！");}
+	mProgram = new CGLSLReal("flowpoints.vert","passthrough.frag");
+	mProgram->SetGaussianParameter(GL_TEXTURE0);
 	LoadWindData(m_IniFile,&m_rawdata);//風関連データのロード
 	LoadVolData();//ボリュームデータのロード
-	mProgram = new CGLSLRayCasting("raycasting.vert","raycasting.frag");GetGLError("glTexImage3D");
-	mProgram->Add3DTexture(&m_ucIntensity[0],m_VolSize.xy,m_VolSize.z,GL_UNSIGNED_BYTE);
-	mProgram->UpdateTextureUniform();GetGLError("glTexImage3D");
-	
-	
-	mProgram->UpdateThresholdUniform((float)GetPrivateProfileInt(m_DataKey[0].c_str(),"threshold",64,m_IniFile.c_str())/255.0);
 	m_IsoSurface->Init(m_IniFile.c_str());
+
+	//ボリュームをロードし終え無いと、点の大きさは決まらない。
+	m_PtPara=new CPointParameter(1.7f,8,m_VolSize.z);
+	mProgram->SetDataPointer("uTransParency",&m_PtPara->mTransParency);
+	mProgram->SetDataPointer("pointsize",&m_PtPara->mPointSize);
+	glEnableClientState(GL_VERTEX_ARRAY);
+	mProgram->AttribPointer(sizeof(CParticle),(void*)(&m_Static[0].intensity));
+	glEnableClientState(GL_VERTEX_ARRAY);
+	glVertexPointer(3,GL_FLOAT,sizeof(CParticle),&(m_Static[0].pos.x));
+	glEnableClientState(GL_NORMAL_ARRAY);
+	glNormalPointer(GL_FLOAT,sizeof(CParticle),&(m_Static[0].normal.x));
+	UpdatePara();
 	glUseProgram(0);
 	//虹色モード用のシェーダ　
 	mRainbowProgram = new CGLSLRainbow("rainbow.vert","rainbow.frag");
@@ -392,7 +505,7 @@ void CCloudRender::Init(){
 
 	//ボリュームデータを地面に投影しつつ虹色に彩色する。投影図を画像ファイルにしちゃおっかな？　そうすると、閾値を動的に変えられないなぁ。。
 	color<float> *projectedRainbowVol;
-	GenerateProjectedRainbow<unsigned char>(m_ucIntensity,m_VolSize.xy*m_VolSize.xy,m_VolSize.z,m_dataMax,mProgram->m_threshold,projectedRainbowVol);
+	GenerateProjectedRainbow<unsigned char>(m_ucIntensity,m_VolSize.xy*m_VolSize.xy,m_VolSize.z,m_dataMax,m_threshold,projectedRainbowVol);
 	
 	m_Land->Init(projectedRainbowVol,m_VolSize.xy,m_IniFile,m_DataKey[0]);
 	glTexEnvf(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_COMBINE);
@@ -439,7 +552,67 @@ void CCloudRender::Init(){
 	ss>>r>>g>>b;
 	m_Bottom.set((unsigned char)r,(unsigned char)g,(unsigned char)b,255);
 	}
+/*!
+もともとは、このCloudRenderクラスが親ウィンドウでGLColorDialogが子ウィンドウだった。
+*/
 
+int CCloudRender::InitPoints(CParticle** _voxel,unsigned char _thre,unsigned char* _rawdata){
+
+	static vec3<float> sample1;//法線の計算のために必要
+	static vec3<float> sample2;
+	static vec3<int> magnitude;
+	//どの頂点が手前下によって詰め方を変えなくてはいけない。
+
+	int c=0;
+	for(int z=0;z<m_VolSize.z;z++){
+		for(int y=0;y<m_VolSize.xy;y++){
+			for(int x=0;x<m_VolSize.xy;x++){
+				int idx,idy,idz;//視線順に並び替えるために必要。
+				idx= x;
+				idy= y;
+				idz= z;
+				int index=m_VolSize.serialId(idx,idy,idz);
+				if(_rawdata[index]>=(float)_thre){
+
+					(*_voxel)[c].pos=vec3<float>(
+						(float)idx/(float)m_VolSize.xy-0.5f,
+						(float)idy/(float)m_VolSize.xy-0.5f,
+						(float)idz/(float)m_VolSize.z);
+					//法線を計算する
+					if(z>0&& y>0 && x>0 && z<m_VolSize.z-1 && y<m_VolSize.xy-1 && x<m_VolSize.xy-1){
+						sample1.x=(float)_rawdata[m_VolSize.serialId(x+1,y,z)];
+						sample2.x=(float)_rawdata[m_VolSize.serialId(x-1,y,z)];
+						sample1.y=(float)_rawdata[m_VolSize.serialId(x,y+1,z)];
+						sample2.y=(float)_rawdata[m_VolSize.serialId(x,y-1,z)];
+						sample1.z=(float)_rawdata[m_VolSize.serialId(x,y,z+1)];
+						sample2.z=(float)_rawdata[m_VolSize.serialId(x,y,z-1)];
+						(*_voxel)[c].normal=sample2-sample1;
+						(*_voxel)[c].normal.normalize();
+					}else{
+						(*_voxel)[c].normal=vec3<float>(0.0f,1.0f,0.0f);
+					}
+					(*_voxel)[c].intensity=((float)_rawdata[index]/(float)m_dataMax);
+					c++;
+				}//end of threshold
+
+			}
+		}
+	}
+	return c;
+}
+int CCloudRender::incrementThreshold(int _th){//閾値を増やしたら、つめなおさないとだめよね。
+	cout<<"閾値"<<m_threshold+_th<<endl;
+	if(m_threshold+_th<=0){return 0;}
+	if(m_threshold+_th<m_dataMax){
+		m_threshold+=_th;
+		m_ValidPtNum=InitPoints(&m_Static,m_threshold,m_ucStaticIntensity);
+		return 0;
+	}else {
+		cout<<"最大値より大きい閾値はダメ　最大値"<<int(m_dataMax)<<"閾値"<<int(m_threshold)<<endl;
+		m_threshold=m_dataMax;
+		return 1;//失敗
+	}
+}
 /*!
 	@brief メインのdisplay関数　毎フレーム呼び出されるやつの親玉。
 	等値面と普段のボリュームは相反する関係だから、そこのところうまくやりたいかも。<br>
@@ -449,11 +622,12 @@ void CCloudRender::Init(){
 
 */
 bool CCloudRender::Draw(){
-								
+	
+									
 	Reshape();
 	m_TransForm->Enable(m_Top,m_Middle,m_Bottom);
 	glPushMatrix();
-	glScalef(1.0,1.0,m_ZScale);
+	glScalef(1.0,1.0,m_ZScale);//GUIによって変化しうるzScale
 	glEnable(GL_VERTEX_PROGRAM_POINT_SIZE);//シェーダの中で点のサイズをいじるのを可能にしてくれる。
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);//back-to-front
@@ -467,17 +641,11 @@ bool CCloudRender::Draw(){
 		m_Land->SetClipPlane(m_ClippingEquation);/// @note　本来地図はクリップ情報は要らないけど、断面図を投影する関係で要ることになってしまった。
 		//脇役達 等値面、地形、ライト、目盛り
 		if(m_Flags & MY_LAND){
-			m_Light->Enable();//そのうちライトは複数のオブジェクトに当てる予定だからlandの引数にはしない
+			glPushAttrib(GL_ENABLE_BIT);
+			m_Light->Enable();
 			m_Land->Run();
-			m_Light->Disable();
+			glPopAttrib();
 		}
-		
-		if(m_Flags & MY_ISOSURFACE){m_Flags&=~MY_CLOUD;m_IsoSurface->Run();}
-		
-		float m[16];
-		glGetFloatv(GL_MODELVIEW_MATRIX,m);
-		//主役の雲を一番手前に
-		//cout<<"m_bCurrentVolData"<<m_bCurrentVolData<<endl;
 		
 		if(m_ClippingEquation[2]==0.0){
 			m_Measure->CalcClipPlane(m_ClippingEquation);
@@ -492,10 +660,16 @@ bool CCloudRender::Draw(){
 		}
 		glPushMatrix();
 		glScalef(1.0,1.0,m_fixedZScale);
+		//等値面がいるときも断面を出したい、という都合上ここに配置
+			glPushAttrib(GL_ENABLE_BIT);
+			glEnable(GL_CLIP_PLANE0);
+		if(m_Flags & MY_ISOSURFACE){m_Flags&=~MY_CLOUD;m_IsoSurface->Run();}
+		
 		if(m_Flags & MY_MEASURE){m_Measure->Draw();}
 	
 		if(m_Measure->m_IsCipVisible){//断面の描画
 			glPushAttrib(GL_ENABLE_BIT);
+			glDisable(GL_CLIP_PLANE0);
 			glEnable(GL_CULL_FACE);glEnable(GL_ALPHA_TEST);
 				glAlphaFunc(GL_GREATER,0.5);
 				glUseProgram(mRainbowProgram->m_Program);
@@ -516,25 +690,40 @@ bool CCloudRender::Draw(){
 		glPushAttrib(GL_ENABLE_BIT);
 		glEnable(GL_POINT_SPRITE);//これでgl_PointCoordが有効になる これで見た目がかなり変わる。
 		if(m_Flags & MY_CLOUD){
-			//等値面がいるときも断面を出したい、という都合上ここに配置
-			glPushAttrib(GL_ENABLE_BIT);
-			glEnable(GL_CLIP_PLANE0);
+			
 			glUseProgram(mProgram->m_Program);
-				glUniform1f(mProgram->m_Map["threshold"],mProgram->m_threshold);
-					m_Light->Enable();//
-						
+				
+					
+						glDepthMask(GL_FALSE);
 								glActiveTexture ( GL_TEXTURE0 );
-								glEnable ( GL_TEXTURE_3D );
-								glBindTexture ( GL_TEXTURE_3D,mProgram->m_TexId );
-									glPushMatrix();
-									glTranslatef(0.0,0.0,0.5);
-									glutSolidCube(1.0);
-									glPopMatrix();
-
-				glPopAttrib();//light off
+								glEnable ( GL_TEXTURE_2D );
+									glBindTexture ( GL_TEXTURE_2D,m_GausTexSamp );
+	
+									glEnableClientState(GL_VERTEX_ARRAY);
+									glEnableClientState(GL_NORMAL_ARRAY);
+										mProgram->AttribPointer(sizeof(CParticle),&(m_Static[0].intensity));
+										glVertexPointer(3,GL_FLOAT,sizeof(CParticle),&(m_Static[0].pos.x));
+										glNormalPointer(GL_FLOAT,sizeof(CParticle),&(m_Static[0].normal));
+										if(m_Flags & MY_STATIC_CLOUD){
+											glDrawArrays(GL_POINTS,0,m_ValidPtNum);
+										}
+										if(m_Flags & MY_DYNAMIC_CLOUD){
+											glVertexPointer(3,GL_FLOAT,sizeof(vec3<float>),&(m_Dynamic[0].x));
+											glDrawArrays(GL_POINTS,0,m_ValidPtNum);
+										}
+	
+									glDisableClientState(GL_VERTEX_ARRAY);
+									glDisableClientState(GL_NORMAL_ARRAY);
+	
+								glDisable(GL_TEXTURE_2D);
+							
+						glDepthMask(GL_TRUE);
+					//glDisable(GL_VERTEX_PROGRAM_POINT_SIZE);
+				
 			glUseProgram(0);
 			
 		}
+		glPopAttrib();//glEnable(GL_CLIP_PLANE0);
 		glPopAttrib();//GL_POINT_SPRITE
 		if(m_Flags & MY_RED_POINT){
 			glPushAttrib(GL_POINT_BIT);
@@ -614,20 +803,11 @@ bool CCloudRender::Draw(){
 		}//MY_YELLOW_POINTS
 		glPopMatrix();//pop fixedZScale
 		
-		//光源の描画
-
+		
 		glPopMatrix();//zScaleを無効化する。
-		glPushAttrib(GL_ENABLE_BIT);
-		glActiveTexture ( GL_TEXTURE0 );
-		glEnable ( GL_TEXTURE_2D );
-		glBindTexture ( GL_TEXTURE_2D,m_GausTexSamp );
-		glPointSize(400);
-		glColor4ub(245,239,207,255);
-		glBegin(GL_POINTS);
-		m_Light->m_pos.glVertex();
-		glEnd();
-		glPopAttrib();
 		if(m_Flags & MY_VECTOR ){DrawWindVector();}
+		
+		if(m_Flags & MY_ANIMATE ){AnimateRandomFadeOut();}//風ベクトルに沿って動かす
 		BlendTime();//0～6分後のブレンドする
 		m_TransForm->Disable();
 		if(m_Flags & MY_CAPTURE){
@@ -636,7 +816,14 @@ bool CCloudRender::Draw(){
 		
 		return 0;
 }
+void CCloudRender::Reset(){
+		for(int i=0;i<m_ValidPtNum;i++){//初期位置を記憶
+			m_Dynamic[i]=m_Static[i].pos;
+		}
+		//断面テクスチャも元に戻す
+	memcpy(m_ucIntensity,m_ucStaticIntensity,sizeof(unsigned char)*m_VolSize.total());
 
+}
 void CCloudRender::JoyStick(){
 	unsigned char buttons[8];
 	float pos[2];
@@ -686,9 +873,10 @@ void CCloudRender::PrepareAnimeVol(){
 	static HANDLE handle;
 	static DWORD dwnumread;
 	handle = CreateFile(filename.str().c_str(), GENERIC_READ,FILE_SHARE_READ, NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL, NULL );
-	ReadFile(handle,m_ucIntensity,sizeof(unsigned char)*m_VolSize.total(),&dwnumread,NULL);
+	ReadFile(handle,m_ucStaticIntensity,sizeof(unsigned char)*m_VolSize.total(),&dwnumread,NULL);
 	CloseHandle(handle);
 	
+	m_ValidPtNum=InitPoints(&mBeforeVoxel,0,m_ucStaticIntensity);
 	m_nFileId++;
 	cout<<m_nFileId<<"フレーム目"<<endl;	
 	if(m_nFileId>163){m_nFileId=24;}
@@ -697,9 +885,10 @@ void CCloudRender::PrepareAnimeVol(){
 	filename.str("");
 	filename<<"../data/cappi/cappi"<<m_nFileId<<"_200_z17_1byte.raw";
 	handle = CreateFile(filename.str().c_str(), GENERIC_READ,FILE_SHARE_READ, NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL, NULL );
-	ReadFile(handle,m_ucIntensity,sizeof(unsigned char)*m_VolSize.total(),&dwnumread,NULL);
+	ReadFile(handle,m_ucStaticIntensity,sizeof(unsigned char)*m_VolSize.total(),&dwnumread,NULL);
 	CloseHandle(handle);
 
+	m_ValidPtNum=InitPoints(&mAfterVoxel,0,m_ucStaticIntensity);
 	//6分おきのデータは各風データを持っている
 	//LoadVelocityData();
 	filename.str("");
@@ -717,7 +906,10 @@ void CCloudRender::PrepareAnimeVol(){
 void CCloudRender::SetFlag(unsigned int _flags){
 	m_Flags=_flags;
 }
-
+void CCloudRender::UpdatePara(){
+	mProgram->UpdatePointPara();
+	glUseProgram(0);
+}
 CCloudRender::~CCloudRender(void){
 	printf("総フレーム数%d\n",m_nFrame);
 	printf("前半の時間平均%fmsec,後半の時間平均%fmsec\n",(double)m_FirstPeriodSum/(double)m_nFrame,(double)m_SecondPeriodSum/(double)m_nFrame);
@@ -725,7 +917,7 @@ CCloudRender::~CCloudRender(void){
 	Destroy();
 	delete[] m_ucWindTF;
 	stringstream str;
-	str<<(int)((mProgram->m_threshold)*255.0);
+	str<<m_threshold;
 	WritePrivateProfileString("anjou","threshold",str.str().c_str(),m_IniFile.c_str());
 	
 }
